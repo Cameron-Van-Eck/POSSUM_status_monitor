@@ -9,7 +9,7 @@ there is no code to automatically update those. (I'll probably just manage those
 
 The Python script in this repository has code for various kinds of updates:
 - **Check for new observations.** This reads from the observatory (EMU) status Google Sheet, updates new observations
-with SB numbers and observation dates.
+with SB numbers and observation dates. Checks and updates validation status (untested so far).
 - **Update observation with AusSRC processing status.** Flags an observation as having completed AusSRC processing (creating partial tiles in that pipeline).
 - **Update tile with AusSRC processing status.** Flags a tile as having completed AusSRC procesing and upload to storage/archive (a fully mosaicked tile).
 - **Create plots.** Makes the plots showing the survey coverage/progress, both observations and tiles, in equatorial and Galactic coordinates.

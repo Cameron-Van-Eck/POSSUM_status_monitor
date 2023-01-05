@@ -148,14 +148,23 @@ def tile_observation_maps(map_file):
     return tile_dict, field_dict
     
 
-
-def get_obs_dates(sb):
-    """Gets observation start and end dates from CASDA for a supplied SB number."""
+def query_CASDA_TAP(sb):
+    """Gets information from CASDA for a supplied SB number.
+    Returns 4 element tuple: observation start and end dates (as strings), the deposited date, and validated date.
+    The validated date may be None if the SB has not been validated yet."""
     session=vo.tap.TAPService('https://casda.csiro.au/casda_vo_tools/tap')
-    result=session.search(f'SELECT TOP 1000 obs_start,obs_end,sbid FROM casda.observation WHERE sbid = {sb}')
-    if len(result) != 1:
-        raise Exception(f'Improper number of results found. Expected 1 SB; got {len(result)}.')
-    return result['obs_start'][0],result['obs_end'][0]
+    result=session.search(f"SELECT TOP 100 sbid,obs_start,obs_end,event_date,event_type,obs_program,project_code FROM casda.observation_event WHERE sbid = '{sb}' AND (project_code = 'AS103' OR project_code = 'AS203' )").to_table()
+    if (result['event_type'] == 'DEPOSITED').sum() != 1:
+        raise Exception("Wrong number of DEPOSITED events? What the heck?")
+    if (result['event_type'] == 'VALIDATED').sum() > 1:
+        raise Exception("Wrong number of VALIDATED events? What the heck?")
+    elif (result['event_type'] == 'VALIDATED').sum() == 1:
+        valid_date=result[result['event_type'] == 'VALIDATED']['event_date'][0]
+    else:
+        valid_date=None
+
+    return result['obs_start'][0],result['obs_end'][0],result[result['event_type'] == 'DEPOSITED']['event_date'][0],valid_date
+ 
 
 
 def update_observed_fields(ps):
@@ -173,17 +182,24 @@ def update_observed_fields(ps):
     emu_obs=obs_sh.sheet1.get_values()
     emu_obs=at.Table(np.array(emu_obs)[1:],names=emu_obs[0])
 
-    #Update any new observations:
-    new_obs = np.where((emu_obs['processed'] == '1') & (current_data['sbid'] == ''))[0]
+    #Update any new observations: (This will hopefully catch any re-observations)
+    new_obs = np.where((emu_obs['processed'] == '1') & (current_data['sbid'] != emu_obs['sbid']))[0]
     #Update rows for all new observations. The observation start/end time, 
     #SBID, get added, and processed date. Note that processed date is set to
     #the date the script runs, because there is no time information available
     #for when an observation is processed.
-    today=datetime.date.today().isoformat()
     for i in new_obs:
         sb=emu_obs[i]['sbid']
-        obs_start,obs_end=get_obs_dates(sb)
-        sheet.update(f'N{i+2}',[[obs_start,obs_end,sb,today]])
+        obs_start,obs_end,deposit_date=query_CASDA_TAP(sb)[0:3]
+        sheet.update(f'N{i+2}',[[obs_start,obs_end,sb,deposit_date]])
+        
+    #Check/update validation status for previously unvalidated observations
+    awaiting_validation=np.where((current_data['processed'] != '') & (current_data['validated'] == ''))[0]
+    for i in awaiting_validation:
+        sb=current_data[i]['sbid']
+        valid_date=query_CASDA_TAP(sb)[3]
+        if valid_date is not None:
+            sheet.update(f'R{i+2}',valid_date[0:10])
 
 
 
