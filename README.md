@@ -17,10 +17,7 @@ with SB numbers and observation dates. Checks and updates validation status (unt
 
 Features that are still missing:
 - *Everything for band 2 (WALLABY).* Waiting on access to WALLABY observatory status sheet, as well as full field list (with all beam positions).
-- *Validation status updates.* Need to figure out if there's a way to auto-query validation status. Checking if cubes are public?
-- *Pipeline status updates.* Need to write pipeline module(s) that update the tile status through the pipelines.
 - *Confirm things work with re-observations.* If a field is reobserved, will that be captured in the spreadsheet update? Need to check.
-- *Pilot data.* Will probably want sheets for band 1 and 2 separately.
 - *Website* to hold figures and Aladin lite page. HTML page to hold figures?
 
 

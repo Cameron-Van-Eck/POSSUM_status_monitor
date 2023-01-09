@@ -44,6 +44,23 @@ def open_sheet(token_file):
     ps= gc.open_by_url('https://docs.google.com/spreadsheets/d/1sWCtxSSzTwjYjhxr1_KVLWG2AnrHwSJf_RWQow7wbH0')
     
     return ps
+
+def _get_sheet(ps,survey,data):
+    """Open a particular sheet within the survey master Google sheet file, 
+    based on which survey, band, and data type (observations or tiles)
+    are specified.
+    Inputs:
+        ps: master sheet variable
+        survey (str): survey to process: '1'/'2' for full survey band 1/2, 
+                        'p1'/'p2' for pilot survey.
+        data: 'Tiles' or 'Observations'
+    """
+    if survey[0].lower() == 'p':
+        worksheet_name = f'Pilot {data} - Band {survey[1]}'
+    else:
+        worksheet_name = f'Survey {data} - Band {survey[0]}'
+    return ps.worksheet(worksheet_name)
+
     
 
 def verify_sheet(ps):
@@ -54,58 +71,41 @@ def verify_sheet(ps):
     
     #Check names of sheets:
     sheets=[x.title for x in ps.worksheets()]
-    assert 'Pilot Observations' in sheets
-    assert 'Pilot Tiles' in sheets
-    assert 'Observations - Band 1' in sheets
+    assert 'Pilot Observations - Band 1' in sheets
+    assert 'Pilot Observations - Band 2' in sheets
+    assert 'Pilot Tiles - Band 1' in sheets
+    assert 'Pilot Tiles - Band 2' in sheets
+    assert 'Survey Observations - Band 1' in sheets
     assert 'Survey Tiles - Band 1' in sheets
+    
 
     #Check headers of individual sheets. If someone adds new columns, the code
     #needs to be updated.
-    sheet=ps.worksheet('Observations - Band 1')
-    header = sheet.row_values(1)
-    try:
-        assert header == ['name', 'ra', 'dec', 'ra_deg', 'dec_deg', 'gl', 'gb',
-                      'rotation', 'duration', 'centrefreq', 'bandwidth',
-                      'footprint', 'associated_tiles', 'obs_start', 'obs_end',
-                      'sbid', 'processed', 'validated', 'aus_src']
-    except:
-        raise Exception('Observations sheet header had changed.')
+    #Check all observation sheets:
+    for obs in [x for x in sheets if 'Observations' in x]:
+        sheet=ps.worksheet(obs)
+        header = sheet.row_values(1)
+        try:
+            assert header == ['name', 'ra', 'dec', 'ra_deg', 'dec_deg', 'gl', 'gb',
+                          'rotation', 'duration', 'centrefreq', 'bandwidth',
+                          'footprint', 'associated_tiles', 'obs_start', 'obs_end',
+                          'sbid', 'processed', 'validated', 'aus_src']
+        except:
+            raise Exception(f'{obs} header had changed.')
 
-    sheet=ps.worksheet('Pilot Observations')
-    header = sheet.row_values(1)
-    try:
-        assert header == ['name', 'ra', 'dec', 'ra_deg', 'dec_deg', 'gl', 'gb',
-                      'rotation', 'duration', 'centrefreq', 'bandwidth',
-                      'footprint', 'associated_tiles', 'obs_start', 'obs_end',
-                      'sbid', 'processed', 'validated', 'aus_src']
-    except:
-        raise Exception('Pilot Observations sheet header had changed.')
-
-    sheet = ps.worksheet('Survey Tiles - Band 1')
-    header = sheet.row_values(1)
-    try:
-        assert header == ['tile_id', 'ra', 'dec', 'ra_deg', 'dec_deg', 'gl', 'gb',
-                      'aus_src','1d_pipeline_main','1d_pipeline_borders','3d_pipeline',
-                      'field1', 'field2', 'field3', 'field4', 'field5',
-                      'field6', 'field7', 'field8', 'field9', 'neighbour_SW',
-                      'neighbour_W', 'neighbour_NW', 'neighbour_N',
-                      'neighbour_NE', 'neighbour_E', 'neighbour_SE',
-                      'neighbour_S']
-    except:
-        raise Exception('Tiles sheet header had changed.')
-
-    sheet = ps.worksheet('Pilot Tiles')
-    header = sheet.row_values(1)
-    try:
-        assert header == ['tile_id', 'ra', 'dec', 'ra_deg', 'dec_deg', 'gl', 'gb',
-                      'aus_src','1d_pipeline_main','1d_pipeline_borders','3d_pipeline',
-                      'field1', 'field2', 'field3', 'field4', 'field5',
-                      'field6', 'field7', 'field8', 'field9', 'neighbour_SW',
-                      'neighbour_W', 'neighbour_NW', 'neighbour_N',
-                      'neighbour_NE', 'neighbour_E', 'neighbour_SE',
-                      'neighbour_S']
-    except:
-        raise Exception('Pilot tiles sheet header had changed.')
+    for tiles in [x for x in sheets if 'Tiles' in x]:
+        sheet = ps.worksheet(tiles)
+        header = sheet.row_values(1)
+        try:
+            assert header == ['tile_id', 'ra', 'dec', 'ra_deg', 'dec_deg', 'gl', 'gb',
+                          'aus_src','1d_pipeline_main','1d_pipeline_borders','3d_pipeline',
+                          'field1', 'field2', 'field3', 'field4', 'field5',
+                          'field6', 'field7', 'field8', 'field9', 'neighbour_SW',
+                          'neighbour_W', 'neighbour_NW', 'neighbour_N',
+                          'neighbour_NE', 'neighbour_E', 'neighbour_SE',
+                          'neighbour_S']
+        except:
+            raise Exception(f'{tiles} header had changed.')
 
 
 
@@ -170,10 +170,12 @@ def query_CASDA_TAP(sb):
 def update_observed_fields(ps):
     """Update the information on which fields have been observed, using
     Vanessa Moss' EMU spreadsheet as the information source.
-    Takes the POSSUM master sheet variable as input."""
+    Takes the POSSUM master sheet variable as input.
+    Will be updated with the WALLABY method/sheet once we learn what that is.
+    """
 
     #Get as-is POSSUM status
-    sheet = ps.worksheet('Observations - Band 1')
+    sheet = ps.worksheet('Survey Observations - Band 1')
     current_data=sheet.get_values()
     current_data=at.Table(np.array(current_data)[1:],names=current_data[0])
 
@@ -191,7 +193,7 @@ def update_observed_fields(ps):
     for i in new_obs:
         sb=emu_obs[i]['sbid']
         obs_start,obs_end,deposit_date=query_CASDA_TAP(sb)[0:3]
-        sheet.update(f'N{i+2}',[[obs_start,obs_end,sb,deposit_date]])
+        sheet.update(f'N{i+2}',[[obs_start,obs_end,sb,deposit_date[0:10]]])
         
     #Check/update validation status for previously unvalidated observations
     awaiting_validation=np.where((current_data['processed'] != '') & (current_data['validated'] == ''))[0]
@@ -204,15 +206,17 @@ def update_observed_fields(ps):
 
 
 
-def update_aussrc_field_processed(ps,sb):
+def update_aussrc_field_processed(ps,survey,sb):
     """Update an observation to indicate it has been tiled by the AusSRC pipeline.
     Notes the date in the observation sheet, and color-codes the associated cells
     in the tile sheet.
     Inputs:
         ps: master sheet variable
-        sb: SBID number for observation"""
+        survey (str): survey to process: '1'/'2' for full survey band 1/2, 
+                        'p1'/'p2' for pilot survey.
+        sb (int or str): SBID number for observation"""
     
-    obs_sheet = ps.worksheet('Observations - Band 1')
+    obs_sheet = _get_sheet(ps,survey,'Observations')
     current_data=obs_sheet.get_values()
     current_data=at.Table(np.array(current_data)[1:],names=current_data[0])
     
@@ -242,14 +246,16 @@ def update_aussrc_field_processed(ps,sb):
 
 
 
-def update_aussrc_tile_processed(ps,tile):
+def update_aussrc_tile_processed(ps,survey,tile):
     """Update a tile to indicate it has been mosaicked and uploaded by the AusSRC pipeline.
     Notes the date in the tile sheet, and color-codes the appropriate cells for the neighbouring tiles.
     Inputs:
         ps: master sheet variable
+        survey (str): survey to process: '1'/'2' for full survey band 1/2, 
+                    'p1'/'p2' for pilot survey.
         tile: tile id number"""
 
-    tile_sheet = ps.worksheet('Survey Tiles - Band 1')
+    tile_sheet = _get_sheet(ps,survey,'Tiles')
     tile_data=tile_sheet.get_values()
     tile_data=at.Table(np.array(tile_data)[1:],names=tile_data[0])
 
@@ -279,7 +285,7 @@ def update_aussrc_tile_processed(ps,tile):
 
 
 
-def create_plots(ps,basename):
+def create_plots(ps,survey,basename):
     """Creates plots showing the survey status, and saves them to disk.
     Makes the plots for both the tiles and observations. Currently band 1 only.
     Inputs:
@@ -289,7 +295,7 @@ def create_plots(ps,basename):
     """
     
     #First the tile plots. Get the data from the relevant sheet.
-    tile_sheet=ps.worksheet('Survey Tiles - Band 1')
+    tile_sheet=_get_sheet(ps,survey,'Tiles')
     tile_info=tile_sheet.get_values()
     tile_info=at.Table(np.array(tile_info)[1:],names=tile_info[0])
 
@@ -357,7 +363,7 @@ def create_plots(ps,basename):
 
 
     #Now the observations.
-    obs_sheet=ps.worksheet('Observations - Band 1')
+    obs_sheet=_get_sheet(ps,survey,'Observations')
     obs_info=obs_sheet.get_values()
     obs_info=at.Table(np.array(obs_info)[1:],names=obs_info[0])
 
@@ -402,7 +408,7 @@ def create_plots(ps,basename):
     xmax=plt.xlim()[1]
     ymax=plt.ylim()[1]
     plt.text(xmax*-0.99,ymax*-0.95,'Equatorial\ncoordinates',{'size':14,'ha':'left'})
-    cb=plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
+    plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
 
     plt.savefig(basename+'observations_equatorial.png',bbox_inches='tight',dpi=300)
 
@@ -424,17 +430,17 @@ def create_plots(ps,basename):
     ymax=plt.ylim()[1]
     plt.text(xmax*-0.99,ymax*-0.95,'Galactic\ncoordinates',{'size':14,'weight':'bold','ha':'left'})
     
-    cb=plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
+    plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
 
     plt.savefig(basename+'observations_galactic.png',bbox_inches='tight',dpi=300)
 
 
-def aladin_webpage(ps,outfile):
+def aladin_webpage(ps,survey,outfile):
     """Generage an html file that contains an Aladin Lite applet with overlays
     that show the POSSUM status (both observations and tiles).
     """
     #Get field list.
-    obs_sheet=ps.worksheet('Observations - Band 1')
+    obs_sheet=_get_sheet(ps,survey,'Observations')
     obs_info=obs_sheet.get_values()
     obs_info=at.Table(np.array(obs_info)[1:],names=obs_info[0])
     
@@ -507,7 +513,7 @@ def aladin_webpage(ps,outfile):
             aussrc_obs_corners_aladin.append( field_corner_line.format( corner1 ) ) 
     
     #Now process the tiles...
-    tile_sheet=ps.worksheet('Survey Tiles - Band 1')
+    tile_sheet=_get_sheet(ps,survey,'Tiles')
     tile_info=tile_sheet.get_values()
     tile_info=at.Table(np.array(tile_info)[1:],names=tile_info[0])
     
@@ -558,6 +564,13 @@ def aladin_webpage(ps,outfile):
         corner = ','.join([f'[{ra},{dec}]' for ra,dec in iter(coords)])
         completed_tile_corners_aladin.append('completed_tile_overlay.addFootprints([A.polygon([{0}])]);\n'.format(corner))
 
+
+    if survey[0].lower() == 'p':
+        page_name = f'Pilot surveys - Band {survey[1]}'
+    else:
+        page_name = f'Full survey - Band {survey[0]}'
+
+
     html_header = '''
     <!DOCTYPE>
     <html>
@@ -567,7 +580,7 @@ def aladin_webpage(ps,outfile):
     </head>
     <body>
         <h1> POSSUM Status Monitor </h1>
-
+        <h2> ''' + page_name + ''' <\h2>
     <!-- Aladin Lite has a dependency on the jQuery library -->
     <script src="https://code.jquery.com/jquery-1.10.1.min.js"></script>
 
@@ -664,6 +677,8 @@ def cli():
                                  formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("token_file", metavar="token.json",
                         help="ASCII file containing Stokes spectra & errors.")
+    parser.add_argument("-s", dest="survey", default='1',type=str,
+                        help="Specify survey and band: p1/p2 for pilot, 1/2 for full survey band 1/2. Default: 1")    
     parser.add_argument("-o", dest="update_obs", action="store_true",
                         help="Action: update observation sheet with new SBs.")
     parser.add_argument("-a", dest="aussrc_field", type=int,metavar='SB',
@@ -685,16 +700,16 @@ def cli():
         update_observed_fields(ps)
 
     if args.aussrc_field is not None:
-        update_aussrc_field_processed(ps,args.aussrc_field)
+        update_aussrc_field_processed(ps,args.survey,args.aussrc_field)
 
     if args.aussrc_tile is not None:
-        update_aussrc_tile_processed(ps,args.aussrc_tile)
+        update_aussrc_tile_processed(ps,args.survey,args.aussrc_tile)
 
     if args.make_plots is not None:
-        create_plots(ps, args.make_plots)
+        create_plots(ps, args.survey, args.make_plots)
 
     if args.make_webpage is not None:
-        aladin_webpage(ps, args.make_webpage)
+        aladin_webpage(ps, args.survey,args.make_webpage)
 
 
 if __name__ == "__main__":
