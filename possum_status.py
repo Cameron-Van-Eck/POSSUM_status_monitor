@@ -31,8 +31,8 @@ import healpy as hp
 import gspread
 import pyvo as vo
 import datetime
-import cartopy
 import cartopy.crs as ccrs
+import subprocess
 
 
 def open_sheet(token_file):
@@ -154,24 +154,35 @@ def query_CASDA_TAP(sb):
     The validated date may be None if the SB has not been validated yet."""
     session=vo.tap.TAPService('https://casda.csiro.au/casda_vo_tools/tap')
     result=session.search(f"SELECT TOP 100 sbid,obs_start,obs_end,event_date,event_type,obs_program,project_code FROM casda.observation_event WHERE sbid = '{sb}' AND (project_code = 'AS103' OR project_code = 'AS203' )").to_table()
-    if (result['event_type'] == 'DEPOSITED').sum() != 1:
+    if (result['event_type'] == 'DEPOSITED').sum() > 1:
         raise Exception("Wrong number of DEPOSITED events? What the heck?")
+    elif (result['event_type'] == 'DEPOSITED').sum() == 1:
+        start=result['obs_start'][0]
+        end=result['obs_end'][0]
+        deposit_date=result[result['event_type'] == 'DEPOSITED']['event_date'][0]
+    else:
+        start=None
+        end=None
+        deposit_date=None
     if (result['event_type'] == 'VALIDATED').sum() > 1:
-        raise Exception("Wrong number of VALIDATED events? What the heck?")
+        raise Exception(f"Wrong number of VALIDATED events on SB{sb}? What the heck?")
+#Search for rejections first: CASDA records both a VALIDATED and REJECTED event for rejected data.
+    elif (result['event_type'] == 'REJECTED').sum() == 1: 
+        valid_date='REJECTED'
     elif (result['event_type'] == 'VALIDATED').sum() == 1:
         valid_date=result[result['event_type'] == 'VALIDATED']['event_date'][0]
     else:
         valid_date=None
 
-    return result['obs_start'][0],result['obs_end'][0],result[result['event_type'] == 'DEPOSITED']['event_date'][0],valid_date
+#    print('Successful query.')
+    return start,end,deposit_date,valid_date
  
 
 
 def update_observed_fields(ps):
     """Update the information on which fields have been observed, using
-    Vanessa Moss' EMU spreadsheet as the information source.
-    Takes the POSSUM master sheet variable as input.
-    Will be updated with the WALLABY method/sheet once we learn what that is.
+    Vanessa Moss' EMU and WALLABY spreadsheets plus CASDA as the information 
+    sources. Takes the POSSUM master sheet variable as input.
     """
 
     #Get as-is POSSUM status
@@ -184,16 +195,34 @@ def update_observed_fields(ps):
     emu_obs=obs_sh.sheet1.get_values()
     emu_obs=at.Table(np.array(emu_obs)[1:],names=emu_obs[0])
 
-    #Update any new observations: (This will hopefully catch any re-observations)
-    new_obs = np.where((emu_obs['processed'] == '1') & (current_data['sbid'] != emu_obs['sbid']))[0]
-    #Update rows for all new observations. The observation start/end time, 
-    #SBID, get added, and processed date. Note that processed date is set to
-    #the date the script runs, because there is no time information available
-    #for when an observation is processed.
+    #Update any new observations:
+
+
+    #Catch observations that have had SB# added since last update.
+    new_obs = np.where((current_data['sbid'] == '') & (emu_obs['sbid'] != '0'))[0]
+    #Update rows for all new observations (new SBs)
     for i in new_obs:
         sb=emu_obs[i]['sbid']
+        sheet.update(f'P{i+2}',sb)
+
+
+    #Catch observations that have had SB# changed (reobservations) since last update.
+    reobs = np.where((current_data['sbid'] != emu_obs['sbid']) & 
+                       (emu_obs['sbid'] != '0') & (current_data['sbid'] == ''))[0]
+    # #Update rows for all new observations -- removing old obs dates and validation
+    for i in reobs:
+        sb=emu_obs[i]['sbid']
+        sheet.update(f'N{i+2}',[['','',sb,'','']])
+
+
+    #Check recent observations for processing
+    awaiting_processing = np.where((current_data['sbid'] != '') & (current_data['obs_start'] == ''))[0]
+    for i in awaiting_processing:
+        sb=emu_obs[i]['sbid']
         obs_start,obs_end,deposit_date=query_CASDA_TAP(sb)[0:3]
-        sheet.update(f'N{i+2}',[[obs_start,obs_end,sb,deposit_date[0:10]]])
+        if obs_start is not None:
+            sheet.update(f'N{i+2}',[[obs_start,obs_end,sb,deposit_date[0:10]]])
+
         
     #Check/update validation status for previously unvalidated observations
     awaiting_validation=np.where((current_data['processed'] != '') & (current_data['validated'] == ''))[0]
@@ -201,7 +230,65 @@ def update_observed_fields(ps):
         sb=current_data[i]['sbid']
         valid_date=query_CASDA_TAP(sb)[3]
         if valid_date is not None:
-            sheet.update(f'R{i+2}',valid_date[0:10])
+            if valid_date == 'REJECTED':
+                sheet.update(f'R{i+2}',valid_date)
+                sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":1,"green": 0.,"blue": 0.}}})
+            else:
+                sheet.update(f'R{i+2}',valid_date[0:10])
+                sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":0.,"green": 0.,"blue": 1.}}})
+
+
+
+    ##WALLABY
+    sheet = ps.worksheet('Survey Observations - Band 2')
+    current_data=sheet.get_values()
+    current_data=at.Table(np.array(current_data)[1:],names=current_data[0])
+
+    
+    obs_sh = ps.client.open_by_url("https://docs.google.com/spreadsheets/d/1w9hn7b1q8QgeMU7D-4ivkMeBzf-mzvVSfB9ABANd78U/edit#gid=0")
+    emu_obs=obs_sh.sheet1.get_values()
+    emu_obs=at.Table(np.array(emu_obs)[1:],names=emu_obs[0])
+
+
+    #Catch observations that have had SB# added since last update.
+    new_obs = np.where((current_data['sbid'] == '') & (emu_obs['sbid'] != '0'))[0]
+    #Update rows for all new observations (new SBs)
+    for i in new_obs:
+        sb=emu_obs[i]['sbid']
+        sheet.update(f'P{i+2}',sb)
+
+
+    #Catch observations that have had SB# changed (reobservations) since last update.
+    reobs = np.where((current_data['sbid'] != emu_obs['sbid']) & 
+                       (emu_obs['sbid'] != '0') & (current_data['sbid'] == ''))[0]
+    # #Update rows for all new observations -- removing old obs dates and validation
+    for i in reobs:
+        sb=emu_obs[i]['sbid']
+        sheet.update(f'N{i+2}',[['','',sb,'','']])
+
+
+    #Check recent observations for processing
+    awaiting_processing = np.where((current_data['sbid'] != '') & (current_data['obs_start'] == ''))[0]
+    for i in awaiting_processing:
+        sb=emu_obs[i]['sbid']
+        obs_start,obs_end,deposit_date=query_CASDA_TAP(sb)[0:3]
+        if obs_start is not None:
+            sheet.update(f'N{i+2}',[[obs_start,obs_end,sb,deposit_date[0:10]]])
+
+        
+    #Check/update validation status for previously unvalidated observations
+    awaiting_validation=np.where((current_data['processed'] != '') & (current_data['validated'] == ''))[0]
+    for i in awaiting_validation:
+        sb=current_data[i]['sbid']
+        valid_date=query_CASDA_TAP(sb)[3]
+        if valid_date is not None:
+            if valid_date == 'REJECTED':
+                sheet.update(f'R{i+2}',valid_date)
+                sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":1,"green": 0.,"blue": 0.}}})
+            else:
+                sheet.update(f'R{i+2}',valid_date[0:10])
+                sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":0.,"green": 0.,"blue": 1.}}})
+
 
 
 
@@ -226,6 +313,8 @@ def update_aussrc_field_processed(ps,survey,sb):
         raise Exception('Could not uniquely find SB row. Either missing or duplicated?')
     today=datetime.date.today().isoformat()
     obs_sheet.update(f'S{int(w)+2}',today) 
+    obs_sheet.format(f'S{int(w)+2}',{'backgroundColorStyle':{"rgbColor": {"red":0.,"green": 1.,"blue": 0.}}})
+
     
     #Get tiles that should have been produced:
     field_name=current_data[w]['name'][0]
@@ -308,16 +397,28 @@ def create_plots(ps,survey,basename):
     pipeline=np.vstack((tile_info['1d_pipeline_main'] != '',
                              tile_info['1d_pipeline_borders'] != '',
                              tile_info['3d_pipeline'] != ''))
-    tile_map[tile_info['tile_id'].astype('int')[np.any(pipeline,axis=0)]] = 3
-    tile_map[tile_info['tile_id'].astype('int')[np.all(pipeline,axis=0)]] = 4
+
+    tile_map[tile_info['tile_id'].astype('int')[tile_info['1d_pipeline_main'] != '']] = 3
+    tile_map[tile_info['tile_id'].astype('int')[tile_info['3d_pipeline'] != '']] = 4
+    tile_map[tile_info['tile_id'].astype('int')[(tile_info['1d_pipeline_main'] != '') & (tile_info['3d_pipeline'] != '')]] = 5
+    tile_map[tile_info['tile_id'].astype('int')[np.all(pipeline,axis=0)]] = 6
+    
     
     col_dict={0:'black',
               1:"grey",
               2:"orange",
-              3:"blue",
-              4:"green"}
-    labels = np.array(['Outside Survey','Incomplete','Mosaicked',
-                       'Partially Processed','Fully Processed'])
+              3:"tab:blue",
+              4:"tab:red",
+              5:"darkviolet",
+              6:"green"}
+    labels = np.array(['Outside Survey',
+                       f'Incomplete ({(tile_map==1).sum()})',
+                       f'Mosaicked ({(tile_map==2).sum()})',
+                       f'1D processed (core) ({(tile_map==3).sum()})',
+                       f'3D processed ({(tile_map==4).sum()})',
+                       f'1D(core)+\n3D processed ({(tile_map==5).sum()})',
+                       f'Fully Processed ({(tile_map==6).sum()})',
+                      ])
     cm = mpl.colors.ListedColormap([col_dict[x] for x in col_dict.keys()])
     norm_bins = np.sort([*col_dict.keys()]) + 0.5
     norm_bins = np.insert(norm_bins, 0, np.min(norm_bins) - 1.0)
@@ -332,13 +433,17 @@ def create_plots(ps,survey,basename):
     ax=plt.subplot(projection=ccrs.Mollweide())
     im=ax.imshow(data,transform=ccrs.Mollweide(),cmap=cm,norm=norm,extent=(-18040095.696147293, 18040095.696147293,-9020047.848073646, 9020047.848073646))
     ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,225,270,315,360],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
-    cb=plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
+    plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
     for ra_grid in [0,3,6,9,12]:
         ax.text(-15*ra_grid,15,str(int(ra_grid))+'h',{'ha':'right','va':'top','color':'w'},transform=ccrs.PlateCarree())
     for ra_grid in [12.01,15,18,21]:
         ax.text(-15*ra_grid,15,str(int(ra_grid))+'h',{'ha':'left','va':'top','color':'w'},transform=ccrs.PlateCarree())
     for dec_grid in [75,60,45,30,15,0,-15,-30,-45,-60,-75]:
         ax.text(0,dec_grid,str(dec_grid)+'°',{'ha':'left','va':'bottom','color':'w'},transform=ccrs.PlateCarree())
+    xmax=plt.xlim()[1]
+    ymax=plt.ylim()[1]
+    plt.text(xmax*-0.99,ymax*-0.95,'Equatorial\ncoordinates',{'size':14,'weight':'bold','ha':'left'})
+    plt.text(xmax*-0.99,ymax*0.95,'Tiles',{'size':14,'weight':'bold','ha':'left'})
 
     plt.savefig(basename+'tiles_equatorial.png',bbox_inches='tight',dpi=300)
 
@@ -349,13 +454,17 @@ def create_plots(ps,survey,basename):
     ax=plt.subplot(projection=ccrs.Mollweide())
     im=ax.imshow(data,transform=ccrs.Mollweide(),cmap=cm,norm=norm,extent=(-18040095.696147293, 18040095.696147293,-9020047.848073646, 9020047.848073646))
     ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,225,270,315,360],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
-    cb=plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
+    plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
     for ra_grid in [0,45,90,135,180]:
         ax.text(-1*ra_grid,0,str(int(ra_grid))+'°',{'ha':'right','va':'top','color':'w'},transform=ccrs.PlateCarree())
     for ra_grid in [180.01,225,270,315]:
         ax.text(-1*ra_grid,0,str(int(ra_grid))+'°',{'ha':'left','va':'top','color':'w'},transform=ccrs.PlateCarree())
     for dec_grid in [75,60,45,30,15,0,-15,-30,-45,-60,-75]:
         ax.text(0,dec_grid,str(dec_grid)+'°',{'ha':'left','va':'bottom','color':'w'},transform=ccrs.PlateCarree())
+    xmax=plt.xlim()[1]
+    ymax=plt.ylim()[1]
+    plt.text(xmax*-0.99,ymax*-0.95,'Galactic\ncoordinates',{'size':14,'weight':'bold','ha':'left'})
+    plt.text(xmax*-0.99,ymax*0.95,'Tiles',{'size':14,'weight':'bold','ha':'left'})
 
     plt.savefig(basename+'tiles_galactic.png',bbox_inches='tight',dpi=300)
 
@@ -376,15 +485,27 @@ def create_plots(ps,survey,basename):
     dec[np.where(np.array(name_mod) == 'B')]+=-1
 
 
-    status=np.array([ 1 if x != '' else 0 for x in obs_info['processed']])
-    status[obs_info['validated'] != ''] = 2
-    status[obs_info['aus_src'] != ''] = 3
+
+    status=np.array([ 1 if x != '' else 0 for x in obs_info['sbid']])
+    status[obs_info['processed'] != ''] = 2
+    status[obs_info['validated'] != ''] = 3
+    status[obs_info['validated'] == 'REJECTED'] = 4
+    status[obs_info['aus_src'] != ''] = 5
+
     #
     col_dict={0:"grey",
-              1:"orange",
-              2:"blue",
-              3:"green"}
-    labels = np.array(['Unobserved','Observed','Validated','Processed'])
+              1: "yellow",
+              2:"orange",
+              4:'tomato',
+              3:"blue",
+              5:"green"}
+    labels = np.array([f'Unobserved ({(status==0).sum()})',
+                       f'Observed ({(status==1).sum()})',
+                       f'Observatory\nProcessed ({(status==2).sum()})',
+                       f'Rejected ({(status==4).sum()})',
+                       f'Validated ({(status==3).sum()})',
+                       f'AusSRC\nProcessed ({(status==5).sum()})',
+                      ])
     cm = mpl.colors.ListedColormap([col_dict[x] for x in col_dict.keys()])
     norm_bins = np.sort([*col_dict.keys()]) + 0.5
     norm_bins = np.insert(norm_bins, 0, np.min(norm_bins) - 1.0)
@@ -398,16 +519,17 @@ def create_plots(ps,survey,basename):
     ax=plt.subplot(projection=ccrs.Mollweide())
     ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,225,270,315,360],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
     ax.set_global()
-    im=ax.scatter(-1*ra,dec,c=[ 1 if x != '' else 0 for x in obs_info['processed']],transform=ccrs.PlateCarree(),cmap=cm,norm=norm)
+    im=ax.scatter(-1*ra,dec,c=status,transform=ccrs.PlateCarree(),cmap=cm,norm=norm)
     for ra_grid in [0,3,6,9,12]:
         ax.text(-15*ra_grid,15,str(int(ra_grid))+'h',{'ha':'right','va':'top'},transform=ccrs.PlateCarree())
     for ra_grid in [12.01,15,18,21]:
         ax.text(-15*ra_grid,15,str(int(ra_grid))+'h',{'ha':'left','va':'top'},transform=ccrs.PlateCarree())
     for dec_grid in [75,60,45,30,15,0,-15,-30,-45,-60,-75]:
-        ax.text(0,dec_grid,str(dec_grid)+'°',{'ha':'left','va':'bottom'},transform=ccrs.PlateCarree())
+        ax.text(0,dec_grid,str(dec_grid)+'°',{'ha':'left','weight':'bold','va':'bottom'},transform=ccrs.PlateCarree())
     xmax=plt.xlim()[1]
     ymax=plt.ylim()[1]
-    plt.text(xmax*-0.99,ymax*-0.95,'Equatorial\ncoordinates',{'size':14,'ha':'left'})
+    plt.text(xmax*-0.99,ymax*-0.95,'Equatorial\ncoordinates',{'size':14,'weight':'bold','ha':'left'})
+    plt.text(xmax*-0.99,ymax*0.95,'Observations',{'size':14,'weight':'bold','ha':'left'})
     plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
 
     plt.savefig(basename+'observations_equatorial.png',bbox_inches='tight',dpi=300)
@@ -418,7 +540,7 @@ def create_plots(ps,survey,basename):
     ax=plt.subplot(projection=ccrs.Mollweide())
     ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,225,270,315,360],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
     ax.set_global()
-    im=ax.scatter(-1*coords.galactic.l.deg,coords.galactic.b.deg,c=[ 1 if x != '' else 0 for x in obs_info['processed']],transform=ccrs.PlateCarree(),cmap=cm,norm=norm)
+    im=ax.scatter(-1*coords.galactic.l.deg,coords.galactic.b.deg,c=status,transform=ccrs.PlateCarree(),cmap=cm,norm=norm)
     for ra_grid in [0,45,90,135,180]:
         ax.text(-1*ra_grid,0,str(int(ra_grid))+'°',{'ha':'right','va':'top'},transform=ccrs.PlateCarree())
     for ra_grid in [180.01,225,270,315]:
@@ -429,7 +551,8 @@ def create_plots(ps,survey,basename):
     xmax=plt.xlim()[1]
     ymax=plt.ylim()[1]
     plt.text(xmax*-0.99,ymax*-0.95,'Galactic\ncoordinates',{'size':14,'weight':'bold','ha':'left'})
-    
+    plt.text(xmax*-0.99,ymax*0.95,'Observations',{'size':14,'weight':'bold','ha':'left'})
+
     plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
 
     plt.savefig(basename+'observations_galactic.png',bbox_inches='tight',dpi=300)
@@ -456,7 +579,7 @@ def aladin_webpage(ps,survey,outfile):
     for i in range(len(obs_info)):
         name1 = obs_info[i]['name']
         rot1 = (45+float(obs_info[i]['rotation'] ))*u.deg 
-        if name1.endswith('B'): #Skip the 'B's, they have the same sky positions.
+        if name1.startswith('EMU') and name1.endswith('B'): #Skip the 'B's, they have the same sky positions.
             continue
         elif name1.endswith('A'): #Add both A and B SBs to the 'A's
             sbid = obs_info[i]['sbid'] + ' ' + obs_info[i+1]['sbid']
@@ -572,7 +695,7 @@ def aladin_webpage(ps,survey,outfile):
 
 
     html_header = '''
-    <!DOCTYPE>
+    <!DOCTYPE html>
     <html>
     <head>
         <!-- Mandatory when setting up Aladin Lite v3 for a smartphones/tablet usage -->
@@ -580,7 +703,10 @@ def aladin_webpage(ps,survey,outfile):
     </head>
     <body>
         <h1> POSSUM Status Monitor </h1>
-        <h2> ''' + page_name + ''' <\h2>
+        <h2> ''' + page_name + ''' </h2>
+        <br><br>
+        Both observation and tile overlays available; click the 'Stack' button
+        to access tile overlays.
     <!-- Aladin Lite has a dependency on the jQuery library -->
     <script src="https://code.jquery.com/jquery-1.10.1.min.js"></script>
 
@@ -661,6 +787,27 @@ def aladin_webpage(ps,survey,outfile):
 
 
 
+def auto_update(ps):
+    """Update the sheet with the latest observation statuses, generate a new
+    set of figures for all surveys, generate new Aladin Lite pages, and
+    upload all results to CANFAR for use on the website.
+    
+    """
+    print('Updating sheet.')
+    update_observed_fields(ps)
+
+    print('Updating plots.')
+    create_plots(ps,'p1','./Pilot_band1_status_')
+    create_plots(ps,'p2','./Pilot_band2_status_')
+    create_plots(ps,'1','./Survey_band1_status_')
+    create_plots(ps,'2','./Survey_band2_status_')
+    
+    print('Updating Aladin overlays.')
+    aladin_webpage(ps,'p1','aladin_pilot_band1.html')
+    aladin_webpage(ps,'p2','aladin_pilot_band2.html')
+    aladin_webpage(ps,'1','aladin_survey_band1.html')
+    aladin_webpage(ps,'2','aladin_survey_band2.html')
+    
 
 
 
@@ -689,6 +836,10 @@ def cli():
                         help="Action: create plots (supply filename/path)")
     parser.add_argument("-w", dest='make_webpage',type=str,metavar='aladin.html',
                         help="Action: create Aladin Lite webpage (supply filename/path)")
+    parser.add_argument("-u", dest='auto_update',action="store_true",
+                        help="Action: create Aladin Lite webpage (supply filename/path)")
+
+
 
     args = parser.parse_args()
 
@@ -710,6 +861,9 @@ def cli():
 
     if args.make_webpage is not None:
         aladin_webpage(ps, args.survey,args.make_webpage)
+        
+    if args.auto_update is True:
+        auto_update(ps)
 
 
 if __name__ == "__main__":
