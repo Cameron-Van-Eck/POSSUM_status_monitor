@@ -146,7 +146,7 @@ def tile_observation_maps(map_file):
         raise Exception("All tiles have 2+ observations. Are the single-observations tiles missing?")
     
     return tile_dict, field_dict
-    
+
 
 def query_CASDA_TAP(sb):
     """Gets information from CASDA for a supplied SB number.
@@ -176,7 +176,7 @@ def query_CASDA_TAP(sb):
 
 #    print('Successful query.')
     return start,end,deposit_date,valid_date
- 
+
 
 
 def update_observed_fields(ps):
@@ -431,7 +431,7 @@ def create_plots(ps,survey,basename):
     data=hp.mollview(tile_map,title='Survey tile status',cmap=cm,min=0,max=4,return_projected_map=True,xsize=10000)
     plt.figure(figsize=(12,6))
     ax=plt.subplot(projection=ccrs.Mollweide())
-    im=ax.imshow(data,transform=ccrs.Mollweide(),cmap=cm,norm=norm,extent=(-18040095.696147293, 18040095.696147293,-9020047.848073646, 9020047.848073646))
+    im=ax.imshow(data,transform=ccrs.Mollweide(),cmap=cm,norm=norm,extent=(-18040095.696147293, 18040095.696147293,-9020047.848073646, 9020047.848073646),origin='lower')
     ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,225,270,315,360],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
     plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
     for ra_grid in [0,3,6,9,12]:
@@ -452,7 +452,7 @@ def create_plots(ps,survey,basename):
     #hp.graticule(dmer=45,dpar=15)
     plt.figure(figsize=(12,6))
     ax=plt.subplot(projection=ccrs.Mollweide())
-    im=ax.imshow(data,transform=ccrs.Mollweide(),cmap=cm,norm=norm,extent=(-18040095.696147293, 18040095.696147293,-9020047.848073646, 9020047.848073646))
+    im=ax.imshow(data,transform=ccrs.Mollweide(),cmap=cm,norm=norm,extent=(-18040095.696147293, 18040095.696147293,-9020047.848073646, 9020047.848073646),origin='lower')
     ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,225,270,315,360],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
     plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
     for ra_grid in [0,45,90,135,180]:
@@ -488,22 +488,22 @@ def create_plots(ps,survey,basename):
 
     status=np.array([ 1 if x != '' else 0 for x in obs_info['sbid']])
     status[obs_info['processed'] != ''] = 2
-    status[obs_info['validated'] != ''] = 3
-    status[obs_info['validated'] == 'REJECTED'] = 4
+    status[obs_info['validated'] != ''] = 4
+    status[obs_info['validated'] == 'REJECTED'] = 3
     status[obs_info['aus_src'] != ''] = 5
 
     #
     col_dict={0:"grey",
               1: "yellow",
               2:"orange",
-              4:'tomato',
-              3:"blue",
+              3:'tomato',
+              4:"blue",
               5:"green"}
     labels = np.array([f'Unobserved ({(status==0).sum()})',
                        f'Observed ({(status==1).sum()})',
                        f'Observatory\nProcessed ({(status==2).sum()})',
-                       f'Rejected ({(status==4).sum()})',
-                       f'Validated ({(status==3).sum()})',
+                       f'Rejected ({(status==3).sum()})',
+                       f'Validated ({(status==4).sum()})',
                        f'AusSRC\nProcessed ({(status==5).sum()})',
                       ])
     cm = mpl.colors.ListedColormap([col_dict[x] for x in col_dict.keys()])
@@ -807,7 +807,7 @@ def auto_update(ps):
     aladin_webpage(ps,'p2','aladin_pilot_band2.html')
     aladin_webpage(ps,'1','aladin_survey_band1.html')
     aladin_webpage(ps,'2','aladin_survey_band2.html')
-    
+
 
 
 
@@ -837,7 +837,7 @@ def cli():
     parser.add_argument("-w", dest='make_webpage',type=str,metavar='aladin.html',
                         help="Action: create Aladin Lite webpage (supply filename/path)")
     parser.add_argument("-u", dest='auto_update',action="store_true",
-                        help="Action: create Aladin Lite webpage (supply filename/path)")
+                        help="Action: update for webpage (runs observation update, plots, and Aladin, outputting to current directory)")
 
 
 
