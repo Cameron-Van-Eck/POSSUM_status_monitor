@@ -432,7 +432,7 @@ def create_plots(ps,survey,basename):
     plt.figure(figsize=(12,6))
     ax=plt.subplot(projection=ccrs.Mollweide())
     im=ax.imshow(data,transform=ccrs.Mollweide(),cmap=cm,norm=norm,extent=(-18040095.696147293, 18040095.696147293,-9020047.848073646, 9020047.848073646),origin='lower')
-    ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,225,270,315,360],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
+    ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,-45,-90,-135,-179.99],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
     plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
     for ra_grid in [0,3,6,9,12]:
         ax.text(-15*ra_grid,15,str(int(ra_grid))+'h',{'ha':'right','va':'top','color':'w'},transform=ccrs.PlateCarree())
@@ -446,14 +446,14 @@ def create_plots(ps,survey,basename):
     plt.text(xmax*-0.99,ymax*0.95,'Tiles',{'size':14,'weight':'bold','ha':'left'})
 
     plt.savefig(basename+'tiles_equatorial.png',bbox_inches='tight',dpi=300)
+    plt.close()
 
-
-    data=hp.mollview(tile_map,title='Survey tile status',coord='EG',cbar=False,return_projected_map=True,xsize=10000)
+    data=hp.mollview(tile_map,title='Survey tile status',coord='CG',cbar=False,return_projected_map=True,xsize=10000)
     #hp.graticule(dmer=45,dpar=15)
     plt.figure(figsize=(12,6))
     ax=plt.subplot(projection=ccrs.Mollweide())
     im=ax.imshow(data,transform=ccrs.Mollweide(),cmap=cm,norm=norm,extent=(-18040095.696147293, 18040095.696147293,-9020047.848073646, 9020047.848073646),origin='lower')
-    ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,225,270,315,360],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
+    ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,-45,-90,-135,-179.99],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
     plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
     for ra_grid in [0,45,90,135,180]:
         ax.text(-1*ra_grid,0,str(int(ra_grid))+'°',{'ha':'right','va':'top','color':'w'},transform=ccrs.PlateCarree())
@@ -467,7 +467,7 @@ def create_plots(ps,survey,basename):
     plt.text(xmax*-0.99,ymax*0.95,'Tiles',{'size':14,'weight':'bold','ha':'left'})
 
     plt.savefig(basename+'tiles_galactic.png',bbox_inches='tight',dpi=300)
-
+    plt.close()
 
 
 
@@ -517,7 +517,7 @@ def create_plots(ps,survey,basename):
 
     plt.figure(figsize=(12,6))
     ax=plt.subplot(projection=ccrs.Mollweide())
-    ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,225,270,315,360],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
+    ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,-45,-90,-135,-179.99],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
     ax.set_global()
     im=ax.scatter(-1*ra,dec,c=status,transform=ccrs.PlateCarree(),cmap=cm,norm=norm)
     for ra_grid in [0,3,6,9,12]:
@@ -533,12 +533,12 @@ def create_plots(ps,survey,basename):
     plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
 
     plt.savefig(basename+'observations_equatorial.png',bbox_inches='tight',dpi=300)
-
+    plt.close()
 
     coords=ac.SkyCoord(ra,dec,unit='deg')
     plt.figure(figsize=(12,6))
     ax=plt.subplot(projection=ccrs.Mollweide())
-    ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,225,270,315,360],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
+    ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,-45,-90,-135,-179.99],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
     ax.set_global()
     im=ax.scatter(-1*coords.galactic.l.deg,coords.galactic.b.deg,c=status,transform=ccrs.PlateCarree(),cmap=cm,norm=norm)
     for ra_grid in [0,45,90,135,180]:
@@ -556,6 +556,8 @@ def create_plots(ps,survey,basename):
     plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
 
     plt.savefig(basename+'observations_galactic.png',bbox_inches='tight',dpi=300)
+    plt.close()
+
 
 
 def aladin_webpage(ps,survey,outfile):
