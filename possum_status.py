@@ -24,6 +24,7 @@ https://docs.google.com/spreadsheets/d/1sWCtxSSzTwjYjhxr1_KVLWG2AnrHwSJf_RWQow7w
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+from matplotlib.markers import MarkerStyle
 import astropy.table as at
 import astropy.coordinates as ac
 import astropy.units as u
@@ -164,12 +165,12 @@ def query_CASDA_TAP(sb):
         start=None
         end=None
         deposit_date=None
-    if (result['event_type'] == 'VALIDATED').sum() > 1:
-        raise Exception(f"Wrong number of VALIDATED events on SB{sb}? What the heck?")
+    if (result['event_type'] == 'RELEASED').sum() > 1:
+        raise Exception(f"Wrong number of RELEASED events on SB{sb}? What the heck?")
 #Search for rejections first: CASDA records both a VALIDATED and REJECTED event for rejected data.
     elif (result['event_type'] == 'REJECTED').sum() == 1: 
         valid_date='REJECTED'
-    elif (result['event_type'] == 'VALIDATED').sum() == 1:
+    elif (result['event_type'] == 'RELEASED').sum() == 1:
         valid_date=result[result['event_type'] == 'VALIDATED']['event_date'][0]
     else:
         valid_date=None
@@ -481,8 +482,10 @@ def create_plots(ps,survey,basename):
     ra=obs_info['ra_deg'].data.astype('float')
     dec=obs_info['dec_deg'].data.astype('float')
     name_mod = [ x[-1] for x in obs_info['name']]
-    dec[np.where(np.array(name_mod) == 'A')]+=1
-    dec[np.where(np.array(name_mod) == 'B')]+=-1
+
+    A_tiles=np.array(name_mod) == 'A'
+    B_tiles=np.array(name_mod) == 'B'
+    single_tiles=(np.array(name_mod) != 'A') & (np.array(name_mod) != 'B')
 
 
 
@@ -503,7 +506,7 @@ def create_plots(ps,survey,basename):
                        f'Observed ({(status==1).sum()})',
                        f'Observatory\nProcessed ({(status==2).sum()})',
                        f'Rejected ({(status==3).sum()})',
-                       f'Validated ({(status==4).sum()})',
+                       f'Released ({(status==4).sum()})',
                        f'AusSRC\nProcessed ({(status==5).sum()})',
                       ])
     cm = mpl.colors.ListedColormap([col_dict[x] for x in col_dict.keys()])
@@ -519,7 +522,18 @@ def create_plots(ps,survey,basename):
     ax=plt.subplot(projection=ccrs.Mollweide())
     ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,-45,-90,-135,-179.99],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
     ax.set_global()
-    im=ax.scatter(-1*ra,dec,c=status,transform=ccrs.PlateCarree(),cmap=cm,norm=norm)
+
+    im=ax.scatter(-1*ra[A_tiles],dec[A_tiles],
+                  c=status[A_tiles],transform=ccrs.PlateCarree(),
+                  cmap=cm,norm=norm,marker=MarkerStyle("o", fillstyle="top"),edgecolor='k',linewidth=0.2)
+    im=ax.scatter(-1*ra[B_tiles],dec[B_tiles],
+                  c=status[B_tiles],transform=ccrs.PlateCarree(),
+                  cmap=cm,norm=norm,marker=MarkerStyle("o", fillstyle="bottom"),edgecolor='k',linewidth=0.2)
+    im=ax.scatter(-1*ra[single_tiles],dec[single_tiles],
+                  c=status[single_tiles],transform=ccrs.PlateCarree(),
+                  cmap=cm,norm=norm,marker='o',edgecolor='k',linewidth=0.2)
+
+
     for ra_grid in [0,3,6,9,12]:
         ax.text(-15*ra_grid,15,str(int(ra_grid))+'h',{'ha':'right','va':'top'},transform=ccrs.PlateCarree())
     for ra_grid in [12.01,15,18,21]:
@@ -540,7 +554,18 @@ def create_plots(ps,survey,basename):
     ax=plt.subplot(projection=ccrs.Mollweide())
     ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,-45,-90,-135,-179.99],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
     ax.set_global()
-    im=ax.scatter(-1*coords.galactic.l.deg,coords.galactic.b.deg,c=status,transform=ccrs.PlateCarree(),cmap=cm,norm=norm)
+
+    im=ax.scatter(-1*coords.galactic.l.deg[A_tiles],coords.galactic.b.deg[A_tiles],
+                  c=status[A_tiles],transform=ccrs.PlateCarree(),
+                  cmap=cm,norm=norm,marker=MarkerStyle("o", fillstyle="top"),edgecolor='k',linewidth=0.2)
+    im=ax.scatter(-1*coords.galactic.l.deg[B_tiles],coords.galactic.b.deg[B_tiles],
+                  c=status[B_tiles],transform=ccrs.PlateCarree(),
+                  cmap=cm,norm=norm,marker=MarkerStyle("o", fillstyle="bottom"),edgecolor='k',linewidth=0.2)
+    im=ax.scatter(-1*coords.galactic.l.deg[single_tiles],coords.galactic.b.deg[single_tiles],
+                  c=status[single_tiles],transform=ccrs.PlateCarree(),
+                  cmap=cm,norm=norm,edgecolor='k',linewidth=0.2)
+
+
     for ra_grid in [0,45,90,135,180]:
         ax.text(-1*ra_grid,0,str(int(ra_grid))+'°',{'ha':'right','va':'top'},transform=ccrs.PlateCarree())
     for ra_grid in [180.01,225,270,315]:
@@ -557,6 +582,10 @@ def create_plots(ps,survey,basename):
 
     plt.savefig(basename+'observations_galactic.png',bbox_inches='tight',dpi=300)
     plt.close()
+
+
+
+
 
 
 
@@ -724,14 +753,23 @@ def aladin_webpage(ps,survey,outfile):
         let aladin;
         A.init.then(() => {
             aladin = A.aladin('#aladin-lite-div', {fov: 240, projection: "SIN", target:'90 -90', cooFrame: 'equatorial', showReticle:false, showCooGridControl: true, showSimbadPointerControl: true, showCooGrid: false});
-            aladin.setImageSurvey(aladin.createImageSurvey("CHIPASS", "ov-gso/P/CHIPASS", "http://cade.irap.omp.eu/documents/Ancillary/4Aladin/CHIPASS/", "galactic", 3, {imgFormat: 'png'})); // setting a custom HiPS
-            aladin.createImageSurvey('EMU', 'ASKAP-EMU Full Survey', 'http://www.aoc.nrao.edu/~jmarvil/emuHiPS', 'equatorial', 3, {imgFormat: 'png'}); // setting a custom HiPS
+            let chipass = aladin.createImageSurvey("CHIPASS", "ov-gso/P/CHIPASS", "http://cade.irap.omp.eu/documents/Ancillary/4Aladin/CHIPASS/", "galactic", 3, {imgFormat: 'png'}); // setting a custom HiPS
+            let emu = aladin.createImageSurvey('EMU', 'ASKAP-EMU Full Survey', 'http://www.aoc.nrao.edu/~jmarvil/emuHiPS', 'equatorial', 3, {imgFormat: 'png'}); // setting a custom HiPS
+            aladin.setImageSurvey(aladin.createImageSurvey("RACS", "RACS-low-I", "https://casda.csiro.au/hips/RACS/low/I", "equatorial", 8, {imgFormat: 'png'})); // setting a custom HiPS
+            let racs = aladin.getBaseImageLayer();
+            racs.setColormap('grayscale',{stretch: 'linear', reversed: false});
+            aladin.setOverlayImageLayer(chipass,'CHIPASS');
+            let chimap = aladin.getOverlayImageLayer('CHIPASS');
+            chimap.setOpacity(0.5);
+            chimap.setColormap('grayscale',{stretch: 'linear', reversed: false});
+            chimap.setBlendingConfig(true);
+            racs.setBlendingConfig(true);
 
             var field_overlay = A.graphicOverlay({color: 'grey', lineWidth: 1, name:'Planned Fields'});
             aladin.addOverlay(field_overlay);
             var observed_field_overlay = A.graphicOverlay({color: 'orange', lineWidth: 2, name:'Observed fields'});
             aladin.addOverlay(observed_field_overlay);
-            var validated_field_overlay = A.graphicOverlay({color: 'blue', lineWidth: 2, name:'Validated fields'});
+            var validated_field_overlay = A.graphicOverlay({color: 'blue', lineWidth: 2, name:'Released fields'});
             aladin.addOverlay(validated_field_overlay);
             var processed_field_overlay = A.graphicOverlay({color: 'green', lineWidth: 2, name:'Pre-processed fields'});
             aladin.addOverlay(processed_field_overlay);
@@ -789,6 +827,342 @@ def aladin_webpage(ps,survey,outfile):
 
 
 
+
+def create_overlap_plots(ps, basename):
+    """Creates the plots showing the overlap regions between the two bands.
+    Currently, it only tracks 3 data states, on a per-tile basis:
+        - planned but not yet observed.
+        - Observed (by at least one SB)
+        - Aus-SRC processed/tiled (final tile)
+    It tracks this for each band, then creates 3 levels for each state:
+        - true for one band; not part of 2nd band footprint
+        - true for one band, but not yet for 2nd band
+        - true for both bands
+    
+    This implementation is a bit optimistic: it uses the observation-tile mapping,
+    so if an observation even slightly touches a tile it gets counted. So it's
+    possible for one corner of a tile to be covered in one band and the opposite
+    corner in the other band, which would be counted as 'overlap' since both
+    bands have that tile.
+    """
+    #Get all tiles planned for survey:
+    tile_sheet=_get_sheet(ps,'1','Tiles')
+    band1_tiles=tile_sheet.get_values()
+    band1_tiles=at.Table(np.array(band1_tiles)[1:],names=band1_tiles[0])
+    tile_sheet=_get_sheet(ps,'2','Tiles')
+    band2_tiles=tile_sheet.get_values()
+    band2_tiles=at.Table(np.array(band2_tiles)[1:],names=band2_tiles[0])
+
+    #Get all observations planned for survey:
+    obs_sheet=_get_sheet(ps,'1','Observations')
+    band1_obs=obs_sheet.get_values()
+    band1_obs=at.Table(np.array(band1_obs)[1:],names=band1_obs[0])
+    obs_sheet=_get_sheet(ps,'2','Observations')
+    band2_obs=obs_sheet.get_values()
+    band2_obs=at.Table(np.array(band2_obs)[1:],names=band2_obs[0])
+
+    #Initialize blank map. Find all tiles in survey area.
+    tile_map=np.zeros(hp.nside2npix(32),dtype='int') #Initialize map. 0 = not in survey
+
+    all_tiles=np.unique(np.concatenate((band1_tiles['tile_id'].data,band2_tiles['tile_id'].data))).astype(int)
+    tile_map[all_tiles] = 1  # 1 = in survey area in at least one band.
+
+    two_band_tiles=np.array(list(set(band1_tiles['tile_id'].data.astype(int)) & set(band2_tiles['tile_id'].data.astype(int))))
+    tile_map[two_band_tiles] = 2 # 2 = in survey area of both bands
+
+
+    #Find all the tiles which have at least one observation validated.
+    observed_tiles_b1=np.zeros(hp.nside2npix(32),dtype='int')
+    observed_tiles_b2=np.zeros(hp.nside2npix(32),dtype='int')
+    
+    for tile in band1_tiles['tile_id'].data.astype(int):
+        x=band1_tiles[band1_tiles['tile_id'] == str(tile)]['field1','field2','field3',
+                                                       'field4','field5','field6','field7','field8']
+        fields=[ y for y in np.lib.recfunctions.structured_to_unstructured(x.as_array())[0] if y != '' ]
+        for field in fields:
+            i=[ i for i,x in enumerate(band1_obs['name']) if field in x]
+            if (band1_obs[i]['validated'][0] != '') & (band1_obs[i]['validated'][0] != 'REJECTED'):
+                observed_tiles_b1[tile] = 1
+                
+    for tile in band2_tiles['tile_id'].data.astype(int):
+        x=band2_tiles[band2_tiles['tile_id'] == str(tile)]['field1','field2','field3',
+                                                       'field4','field5','field6','field7','field8']
+        fields=[ y for y in np.lib.recfunctions.structured_to_unstructured(x.as_array())[0] if y != '' ]
+        for field in fields:
+            i=[ i for i,x in enumerate(band2_obs['name']) if field in x]
+            if (band2_obs[i]['validated'][0] != '') & (band2_obs[i]['validated'][0] != 'REJECTED'):
+                print(tile, i)
+                observed_tiles_b2[tile] = 2
+                
+    observed_tiles=observed_tiles_b1+observed_tiles_b2
+
+    #Assign tiles based on if they're observed at least once per band:
+    tile_map[(tile_map == 2) & (observed_tiles > 0) & (observed_tiles < 3)] = 3 #3 = Partially observed (1 of 2 bands)
+    tile_map[(tile_map == 1) & (observed_tiles > 0) & (observed_tiles < 3)] = 4 #4 = Fully observed (1 band)
+    tile_map[observed_tiles == 3] = 5 # 5 = Fully Observed (both bands)
+
+
+    #Find all tiles that have their final version produced by AusSRC pipeline:
+    mosaicked_tiles=np.zeros(hp.nside2npix(32),dtype='int')
+    for tile in band1_tiles['tile_id'].data.astype(int):
+        if band1_tiles[band1_tiles['tile_id'] == str(tile)]['aus_src'] != '':
+            mosaicked_tiles[tile] += 1
+    
+    for tile in band2_tiles['tile_id'].data.astype(int):
+        if band2_tiles[band2_tiles['tile_id'] == str(tile)]['aus_src'] != '':
+            mosaicked_tiles[tile] += 2        
+
+    #Assign tiles based on AusSRC completion (Note this isn't fully tested!)
+    tile_map[((tile_map == 3) | (tile_map == 5) ) & (mosaicked_tiles > 0) & (mosaicked_tiles < 3)] = 6 #6 = One of 2 tiles produced
+    tile_map[(tile_map == 4) & (mosaicked_tiles > 0) & (mosaicked_tiles < 3)] = 7 #7 = 1 of 1 tiles produced
+    tile_map[mosaicked_tiles == 3] = 8 #8 = Both tiles produced
+
+
+    col_dict={0:'black',
+              1:"darkgrey",
+              2:"lightgrey",
+              3:"orange",
+              4:"goldenrod",
+              5:"yellow",
+              6:"blue",
+              7:"purple",
+              8:"magenta"
+                }
+    labels = np.array(['Outside Survey',
+                       f'Planned (1 band only) ({(tile_map==1).sum()})',
+                       f'Planned (both bands) ({(tile_map==2).sum()})',
+                       f'Partly observed (1 of 2 bands) ({(tile_map==3).sum()})',
+                       f'Fully observed (1 band) ({(tile_map==4).sum()})',
+                       f'Fully observed (both bands) ({(tile_map==5).sum()})',
+                       f'Complete tile (1 of 2 bands) ({(tile_map==6).sum()})',
+                       f'Complete tile (1 band) ({(tile_map==7).sum()})',
+                       f'Complete tile (both bands) ({(tile_map==8).sum()})',
+                      ])
+    cm = mpl.colors.ListedColormap([col_dict[x] for x in col_dict.keys()])
+    norm_bins = np.sort([*col_dict.keys()]) + 0.5
+    norm_bins = np.insert(norm_bins, 0, np.min(norm_bins) - 1.0)
+    norm = mpl.colors.BoundaryNorm(norm_bins, len(labels), clip=True)
+    fmt = mpl.ticker.FuncFormatter(lambda x, pos: labels[norm(x)])
+    diff = norm_bins[1:] - norm_bins[:-1]
+    tickz = norm_bins[:-1] + diff / 2
+    
+    
+    
+    data=hp.mollview(tile_map,title='Survey tile status',cmap=cm,min=0,max=8,return_projected_map=True,xsize=10000)
+    plt.figure(figsize=(12,6))
+    ax=plt.subplot(projection=ccrs.Mollweide())
+    im=ax.imshow(data,transform=ccrs.Mollweide(),cmap=cm,norm=norm,extent=(-18040095.696147293, 18040095.696147293,-9020047.848073646, 9020047.848073646),origin='lower')
+    ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,-45,-90,-135,-179.99],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
+    plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
+    for ra_grid in [0,3,6,9,12]:
+        ax.text(-15*ra_grid,15,str(int(ra_grid))+'h',{'ha':'right','va':'top','color':'w'},transform=ccrs.PlateCarree())
+    for ra_grid in [12.01,15,18,21]:
+        ax.text(-15*ra_grid,15,str(int(ra_grid))+'h',{'ha':'left','va':'top','color':'w'},transform=ccrs.PlateCarree())
+    for dec_grid in [75,60,45,30,15,0,-15,-30,-45,-60,-75]:
+        ax.text(0,dec_grid,str(dec_grid)+'°',{'ha':'left','va':'bottom','color':'w'},transform=ccrs.PlateCarree())
+    xmax=plt.xlim()[1]
+    ymax=plt.ylim()[1]
+    plt.text(xmax*-0.99,ymax*-0.95,'Equatorial\ncoordinates',{'size':14,'weight':'bold','ha':'left'})
+    plt.text(xmax*-0.99,ymax*0.95,'Overlap status',{'size':14,'weight':'bold','ha':'left'})
+    
+    plt.savefig(basename+'overlap_equatorial.png',bbox_inches='tight',dpi=300)
+    plt.close()
+
+    
+    data=hp.mollview(tile_map,title='Survey tile status',coord='CG',cbar=False,return_projected_map=True,xsize=10000)
+    #hp.graticule(dmer=45,dpar=15)
+    plt.figure(figsize=(12,6))
+    ax=plt.subplot(projection=ccrs.Mollweide())
+    im=ax.imshow(data,transform=ccrs.Mollweide(),cmap=cm,norm=norm,extent=(-18040095.696147293, 18040095.696147293,-9020047.848073646, 9020047.848073646),origin='lower')
+    ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,-45,-90,-135,-179.99],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
+    plt.colorbar(im,format=fmt, ticks=tickz,shrink=0.7)
+    for ra_grid in [0,45,90,135,180]:
+        ax.text(-1*ra_grid,0,str(int(ra_grid))+'°',{'ha':'right','va':'top','color':'w'},transform=ccrs.PlateCarree())
+    for ra_grid in [180.01,225,270,315]:
+        ax.text(-1*ra_grid,0,str(int(ra_grid))+'°',{'ha':'left','va':'top','color':'w'},transform=ccrs.PlateCarree())
+    for dec_grid in [75,60,45,30,15,0,-15,-30,-45,-60,-75]:
+        ax.text(0,dec_grid,str(dec_grid)+'°',{'ha':'left','va':'bottom','color':'w'},transform=ccrs.PlateCarree())
+    xmax=plt.xlim()[1]
+    ymax=plt.ylim()[1]
+    plt.text(xmax*-0.99,ymax*-0.95,'Galactic\ncoordinates',{'size':14,'weight':'bold','ha':'left'})
+    plt.text(xmax*-0.99,ymax*0.95,'Overlap status',{'size':14,'weight':'bold','ha':'left'})
+
+    plt.savefig(basename+'overlap_galactic.png',bbox_inches='tight',dpi=300)
+    plt.close()
+    
+    
+    #Generate and Aladin Lite view showing overlap:
+    
+    #Constants relating to field size and orientation.
+    D = 3.151*u.deg
+    PA1 = 51.79*u.deg
+    PA2 = 128.21*u.deg
+    
+    #Compute the corner locations for all the fields.
+    #Make list of all tile corners, and list of markers for all field centers.
+    field_markers = []
+    field_corners = []
+    
+    #Make band 1 boxes/markers:
+    band1_validated=band1_obs[(band1_obs['validated'] != 'REJECTED') & (band1_obs['validated'] != '')]
+    for obs in band1_validated:
+        name1 = obs['name']
+        rot1 = (45+float(obs['rotation'] ))*u.deg 
+        sbid = obs['sbid']
+    
+        sc=ac.SkyCoord(obs['ra_deg'],obs['dec_deg'],unit='deg',equinox='J2000')
+    
+        field_marker = [name1, sc.ra.deg, sc.dec.deg, rot1.value, sbid]
+        field_markers.append( field_marker )
+    
+        tc1 = sc.directional_offset_by(position_angle = PA1+rot1, separation=D)
+        tc2 = sc.directional_offset_by(position_angle = PA2+rot1, separation=D)
+        tc3 = sc.directional_offset_by(position_angle = -PA2+rot1, separation=D)
+        tc4 = sc.directional_offset_by(position_angle = -PA1+rot1, separation=D)
+        field_corners.append( [name1,tc1.ra.deg,tc1.dec.deg,tc2.ra.deg,tc2.dec.deg,tc3.ra.deg,tc3.dec.deg,tc4.ra.deg,tc4.dec.deg] )
+    
+    band1_markers_aladin = []
+    for (name,ra,dec,pa,sbid) in field_markers:
+        band1_markers_aladin.append( f"band1_cat.addSources([A.marker({ra},{dec},{{popupTitle: '{name}', popupDesc: '<em>RA:</em> {ra:.3f}<br/><em>Dec:</em> {dec:.3f}<br/><em>PA:</em> {pa:.1f}<br/>(J2000)'}})]);\n" ) 
+    
+    band1_corners_aladin = []
+    band1_corner_line =  'band1_overlay.addFootprints([A.polygon([{0}])]);\n'
+    for field in field_corners:
+        corner1 = ', '.join( [ '[{0},{1}]'.format(field[i*2+1],field[i*2+2]) for i in range(4) ] )
+        band1_corners_aladin.append( band1_corner_line.format( corner1 ) ) 
+    
+    #Make band 2 boxes/markers:
+    field_markers = []
+    field_corners = []
+    band2_validated=band2_obs[(band2_obs['validated'] != 'REJECTED') & (band2_obs['validated'] != '')]
+    for obs in band2_validated:
+        name1 = obs['name']
+        rot1 = (45+float(obs['rotation'] ))*u.deg 
+        sbid = obs['sbid']
+    
+        sc=ac.SkyCoord(obs['ra_deg'],obs['dec_deg'],unit='deg',equinox='J2000')
+    
+        field_marker = [name1, sc.ra.deg, sc.dec.deg, rot1.value, sbid]
+        field_markers.append( field_marker )
+    
+        tc1 = sc.directional_offset_by(position_angle = PA1+rot1, separation=D)
+        tc2 = sc.directional_offset_by(position_angle = PA2+rot1, separation=D)
+        tc3 = sc.directional_offset_by(position_angle = -PA2+rot1, separation=D)
+        tc4 = sc.directional_offset_by(position_angle = -PA1+rot1, separation=D)
+        field_corners.append( [name1,tc1.ra.deg,tc1.dec.deg,tc2.ra.deg,tc2.dec.deg,tc3.ra.deg,tc3.dec.deg,tc4.ra.deg,tc4.dec.deg] )
+    
+    # Make all tile markers
+    band2_markers_aladin = []
+    for (name,ra,dec,pa,sbid) in field_markers:
+        band2_markers_aladin.append( f"band2_cat.addSources([A.marker({ra},{dec},{{popupTitle: '{name}', popupDesc: '<em>RA:</em> {ra:.3f}<br/><em>Dec:</em> {dec:.3f}<br/><em>PA:</em> {pa:.1f}<br/>(J2000)'}})]);\n" ) 
+    
+    #Make all field boxes
+    band2_corners_aladin = []
+    band2_corner_line =  'band2_overlay.addFootprints([A.polygon([{0}])]);\n'
+    for field in field_corners:
+        corner1 = ', '.join( [ '[{0},{1}]'.format(field[i*2+1],field[i*2+2]) for i in range(4) ] )
+        band2_corners_aladin.append( band2_corner_line.format( corner1 ) ) 
+
+
+
+    #Pick out tiles that are double-completed:
+    tile_corners_aladin = []
+    for tile_num in np.where(tile_map == 8)[0]:
+        coords=np.array(hp.vec2ang(hp.boundaries(32,tile_num,step=1).T,lonlat=True)).T.tolist()
+        corner = ','.join([f'[{ra},{dec}]' for ra,dec in iter(coords)])
+        tile_corners_aladin.append('tile_overlay.addFootprints([A.polygon([{0}])]);\n'.format(corner))
+
+
+    page_name = 'Band 1/2 Overlap regions'
+
+
+    html_header = '''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <!-- Mandatory when setting up Aladin Lite v3 for a smartphones/tablet usage -->
+        <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+    </head>
+    <body>
+        <h1> POSSUM Status Monitor </h1>
+        <h2> ''' + page_name + ''' </h2>
+        <br><br>
+    <!-- Aladin Lite has a dependency on the jQuery library -->
+    <script src="https://code.jquery.com/jquery-1.10.1.min.js"></script>
+
+    <!-- Aladin Lite container at requested dimensions -->
+    <div id="aladin-lite-div" style="width:700px;height:600px;"></div>
+
+    <!-- Aladin Lite JS code -->
+    <script type="text/javascript" src="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8"></script>
+
+    <!-- Creation of Aladin Lite instance with initial parameters -->
+
+    <script type="text/javascript">
+        let aladin;
+        A.init.then(() => {
+            aladin = A.aladin('#aladin-lite-div', {fov: 240, projection: "SIN", target:'90 -90', cooFrame: 'equatorial', showReticle:false, showCooGridControl: true, showSimbadPointerControl: true, showCooGrid: false});
+            let chipass = aladin.createImageSurvey("CHIPASS", "ov-gso/P/CHIPASS", "http://cade.irap.omp.eu/documents/Ancillary/4Aladin/CHIPASS/", "galactic", 3, {imgFormat: 'png'}); // setting a custom HiPS
+            let emu = aladin.createImageSurvey('EMU', 'ASKAP-EMU Full Survey', 'http://www.aoc.nrao.edu/~jmarvil/emuHiPS', 'equatorial', 3, {imgFormat: 'png'}); // setting a custom HiPS
+            aladin.setImageSurvey(aladin.createImageSurvey("RACS", "RACS-low-I", "https://casda.csiro.au/hips/RACS/low/I", "equatorial", 8, {imgFormat: 'png'})); // setting a custom HiPS
+            let racs = aladin.getBaseImageLayer();
+            racs.setColormap('grayscale',{stretch: 'linear', reversed: false});
+            aladin.setOverlayImageLayer(chipass,'CHIPASS');
+            let chimap = aladin.getOverlayImageLayer('CHIPASS');
+            chimap.setOpacity(0.5);
+            chimap.setColormap('grayscale',{stretch: 'linear', reversed: false});
+            chimap.setBlendingConfig(true);
+            racs.setBlendingConfig(true);
+
+            var band1_overlay = A.graphicOverlay({color: 'blue', lineWidth: 1, name:'Band 1 Validated Fields'});
+            aladin.addOverlay(band1_overlay);
+
+            var band1_cat = A.catalog({name: 'Band 1 field markers', sourceSize: 10, color: '#eee'});
+            aladin.addCatalog(band1_cat);
+            band1_cat.hide();
+
+            var band2_overlay = A.graphicOverlay({color: 'yellow', lineWidth: 1, name:'Band 2 Validated Fields'});
+            aladin.addOverlay(band2_overlay);
+
+            var band2_cat = A.catalog({name: 'Band 2 field markers', sourceSize: 10, color: '#eee'});
+            aladin.addCatalog(band2_cat);
+            band2_cat.hide();
+
+
+            var tile_overlay = A.graphicOverlay({color: 'magenta', lineWidth: 1, name:'Both-band processed tiles'});
+            aladin.addOverlay(tile_overlay);
+            
+
+
+
+    '''
+
+    footer3 = '''
+    });
+
+</script>
+
+        <h3> Built by Cameron Van Eck. Based on the EMU Survey Progress page by Josh Marvil </h3> 
+
+
+</body>
+</html>
+    '''
+
+    outfile= basename+'aladin_overlap.html'
+    with open(outfile,'w') as out1:
+        out1.writelines(html_header)
+        out1.writelines(band1_corners_aladin)
+        out1.writelines(band2_corners_aladin)
+        out1.writelines(band1_markers_aladin)
+        out1.writelines(band2_markers_aladin)
+        out1.writelines(tile_corners_aladin)        
+        out1.writelines(footer3)
+
+
+
+
+
 def auto_update(ps):
     """Update the sheet with the latest observation statuses, generate a new
     set of figures for all surveys, generate new Aladin Lite pages, and
@@ -803,13 +1177,13 @@ def auto_update(ps):
     create_plots(ps,'p2','./Pilot_band2_status_')
     create_plots(ps,'1','./Survey_band1_status_')
     create_plots(ps,'2','./Survey_band2_status_')
+    create_overlap_plots(ps, './Survey_')
     
     print('Updating Aladin overlays.')
     aladin_webpage(ps,'p1','aladin_pilot_band1.html')
     aladin_webpage(ps,'p2','aladin_pilot_band2.html')
     aladin_webpage(ps,'1','aladin_survey_band1.html')
     aladin_webpage(ps,'2','aladin_survey_band2.html')
-
 
 
 
@@ -838,6 +1212,9 @@ def cli():
                         help="Action: create plots (supply filename/path)")
     parser.add_argument("-w", dest='make_webpage',type=str,metavar='aladin.html',
                         help="Action: create Aladin Lite webpage (supply filename/path)")
+    parser.add_argument("-O", dest='overlap',type=str,metavar='FILENAME',
+                        help="Action: create 2-band overlap plots and Aladin page.")
+    
     parser.add_argument("-u", dest='auto_update',action="store_true",
                         help="Action: update for webpage (runs observation update, plots, and Aladin, outputting to current directory)")
 
@@ -864,6 +1241,10 @@ def cli():
     if args.make_webpage is not None:
         aladin_webpage(ps, args.survey,args.make_webpage)
         
+    if args.overlap is not None:
+        create_overlap_plots(ps, args.overlap)
+
+    
     if args.auto_update is True:
         auto_update(ps)
 
