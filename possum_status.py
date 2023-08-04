@@ -169,7 +169,7 @@ def query_CASDA_TAP(sb):
         raise Exception(f"Wrong number of RELEASED events on SB{sb}? What the heck?")
 #Search for rejections first: CASDA records both a VALIDATED and REJECTED event for rejected data.
     elif (result['event_type'] == 'REJECTED').sum() == 1: 
-        valid_date='REJECTED'
+        valid_date='REJECTED - '+result[result['event_type'] == 'REJECTED']['event_date'][0]
     elif (result['event_type'] == 'RELEASED').sum() == 1:
         valid_date=result[result['event_type'] == 'VALIDATED']['event_date'][0]
     else:
@@ -231,7 +231,7 @@ def update_observed_fields(ps):
         sb=current_data[i]['sbid']
         valid_date=query_CASDA_TAP(sb)[3]
         if valid_date is not None:
-            if valid_date == 'REJECTED':
+            if 'REJECTED' in valid_date:
                 sheet.update(f'R{i+2}',valid_date)
                 sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":1,"green": 0.,"blue": 0.}}})
             else:
@@ -283,7 +283,7 @@ def update_observed_fields(ps):
         sb=current_data[i]['sbid']
         valid_date=query_CASDA_TAP(sb)[3]
         if valid_date is not None:
-            if valid_date == 'REJECTED':
+            if 'REJECTED' in valid_date:
                 sheet.update(f'R{i+2}',valid_date)
                 sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":1,"green": 0.,"blue": 0.}}})
             else:
@@ -492,7 +492,7 @@ def create_plots(ps,survey,basename):
     status=np.array([ 1 if x != '' else 0 for x in obs_info['sbid']])
     status[obs_info['processed'] != ''] = 2
     status[obs_info['validated'] != ''] = 4
-    status[obs_info['validated'] == 'REJECTED'] = 3
+    status[np.char.startswith(obs_info['validated'],'REJECTED')] = 3
     status[obs_info['aus_src'] != ''] = 5
 
     #
@@ -881,7 +881,7 @@ def create_overlap_plots(ps, basename):
         fields=[ y for y in np.lib.recfunctions.structured_to_unstructured(x.as_array())[0] if y != '' ]
         for field in fields:
             i=[ i for i,x in enumerate(band1_obs['name']) if field in x]
-            if (band1_obs[i]['validated'][0] != '') & (band1_obs[i]['validated'][0] != 'REJECTED'):
+            if (band1_obs[i]['validated'][0] != '') & ('REJECTED' not in band1_obs[i]['validated'][0]):
                 observed_tiles_b1[tile] = 1
                 
     for tile in band2_tiles['tile_id'].data.astype(int):
@@ -890,8 +890,7 @@ def create_overlap_plots(ps, basename):
         fields=[ y for y in np.lib.recfunctions.structured_to_unstructured(x.as_array())[0] if y != '' ]
         for field in fields:
             i=[ i for i,x in enumerate(band2_obs['name']) if field in x]
-            if (band2_obs[i]['validated'][0] != '') & (band2_obs[i]['validated'][0] != 'REJECTED'):
-                print(tile, i)
+            if (band2_obs[i]['validated'][0] != '') & ('REJECTED' not in band2_obs[i]['validated'][0]):
                 observed_tiles_b2[tile] = 2
                 
     observed_tiles=observed_tiles_b1+observed_tiles_b2
@@ -1004,7 +1003,7 @@ def create_overlap_plots(ps, basename):
     field_corners = []
     
     #Make band 1 boxes/markers:
-    band1_validated=band1_obs[(band1_obs['validated'] != 'REJECTED') & (band1_obs['validated'] != '')]
+    band1_validated=band1_obs[(np.char.startswith(band1_obs['validated'],'20')) & (band1_obs['validated'] != '')]
     for obs in band1_validated:
         name1 = obs['name']
         rot1 = (45+float(obs['rotation'] ))*u.deg 
@@ -1034,7 +1033,7 @@ def create_overlap_plots(ps, basename):
     #Make band 2 boxes/markers:
     field_markers = []
     field_corners = []
-    band2_validated=band2_obs[(band2_obs['validated'] != 'REJECTED') & (band2_obs['validated'] != '')]
+    band2_validated=band2_obs[(np.char.startswith(band2_obs['validated'],'20')) & (band2_obs['validated'] != '')]
     for obs in band2_validated:
         name1 = obs['name']
         rot1 = (45+float(obs['rotation'] ))*u.deg 
