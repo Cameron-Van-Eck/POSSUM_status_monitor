@@ -90,7 +90,7 @@ def verify_sheet(ps):
             assert header == ['name', 'ra', 'dec', 'ra_deg', 'dec_deg', 'gl', 'gb',
                           'rotation', 'duration', 'centrefreq', 'bandwidth',
                           'footprint', 'associated_tiles', 'obs_start', 'obs_end',
-                          'sbid', 'processed', 'validated', 'aus_src']
+                          'sbid', 'processed', 'validated', 'aus_src','single_SB_1D_pipeline']
         except:
             raise Exception(f'{obs} header had changed.')
 
@@ -446,6 +446,14 @@ def create_plots(ps,survey,basename):
     plt.text(xmax*-0.99,ymax*-0.95,'Equatorial\ncoordinates',{'size':14,'weight':'bold','ha':'left'})
     plt.text(xmax*-0.99,ymax*0.95,'Tiles',{'size':14,'weight':'bold','ha':'left'})
 
+    #Draw lines for HPX projection boundaries
+    ax.plot(-np.repeat(0,10),np.linspace(41.8103,-41.8103,10),'r:',transform=ccrs.PlateCarree(),label='HPX projection\nboundaries')
+    for ra in [0,90,179.99,180.01,270]:
+        ax.plot(-np.repeat(ra,10),np.linspace(-41.8103,-90,10),'r:',transform=ccrs.PlateCarree())
+        ax.plot(-np.repeat(ra,10),np.linspace(41.8103,90,10),'r:',transform=ccrs.PlateCarree())
+    plt.legend(loc='upper right')
+
+
     plt.savefig(basename+'tiles_equatorial.png',bbox_inches='tight',dpi=300)
     plt.close()
 
@@ -466,6 +474,18 @@ def create_plots(ps,survey,basename):
     ymax=plt.ylim()[1]
     plt.text(xmax*-0.99,ymax*-0.95,'Galactic\ncoordinates',{'size':14,'weight':'bold','ha':'left'})
     plt.text(xmax*-0.99,ymax*0.95,'Tiles',{'size':14,'weight':'bold','ha':'left'})
+
+
+    #Draw lines for HPX projection boundaries
+    coords=ac.SkyCoord(ra=np.repeat(0,20),dec=np.linspace(90,-90,20),frame='icrs',unit='deg')
+    ax.plot([-x if x < 180 else 360-x for x in coords.galactic.l.deg],coords.galactic.b.deg,'r:',transform=ccrs.PlateCarree(),label='HPX projection\nboundaries')
+    for ra in [90,180,270]:
+        coords=ac.SkyCoord(ra=np.repeat(ra,10),dec=np.linspace(-41.8103,-90,10),frame='icrs',unit='deg')
+        ax.plot(-coords.galactic.l.deg,coords.galactic.b.deg,'r:',transform=ccrs.PlateCarree())
+        coords=ac.SkyCoord(ra=np.repeat(ra,10),dec=np.linspace(41.8103,90,10),frame='icrs',unit='deg')
+        ax.plot(-coords.galactic.l.deg,coords.galactic.b.deg,'r:',transform=ccrs.PlateCarree())
+    plt.legend(loc='lower right')
+
 
     plt.savefig(basename+'tiles_galactic.png',bbox_inches='tight',dpi=300)
     plt.close()
