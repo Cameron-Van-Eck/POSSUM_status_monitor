@@ -755,7 +755,9 @@ def aladin_webpage(ps,survey,outfile):
     <body>
         <h1> POSSUM Status Monitor </h1>
         <h2> ''' + page_name + ''' </h2>
-        <br><br>
+        <br>
+        Last updated: ''' + str(datetime.date.today()) + '''
+        <br>
         Both observation and tile overlays available; click the 'Stack' button
         to access tile overlays.
     <!-- Aladin Lite has a dependency on the jQuery library -->
@@ -846,6 +848,21 @@ def aladin_webpage(ps,survey,outfile):
 
 
 
+
+def set_update_date_on_main_page(webpage_file):
+    """Writes today's date on the appropriate line of the main status page.
+    This is the only information that (currently) gets written to the page html;
+    everything else is just updating the plots and Aladin sub-pages.
+    Overwrite the file in-place. Takes the page filepath as input.
+    """
+
+    with open(webpage_file, 'r') as f:    # pass an appropriate path of the required file
+        lines = f.readlines()
+
+        lines[7] = f"Last updated: {str(datetime.date.today())}\n"
+        with open(webpage_file, 'w') as f:
+            f.writelines(lines)
+    
 
 
 def create_overlap_plots(ps, basename):
@@ -1203,7 +1220,7 @@ def auto_update(ps):
     aladin_webpage(ps,'p2','aladin_pilot_band2.html')
     aladin_webpage(ps,'1','aladin_survey_band1.html')
     aladin_webpage(ps,'2','aladin_survey_band2.html')
-
+    set_update_date_on_main_page('./status_page.html')
 
 
 def cli():
