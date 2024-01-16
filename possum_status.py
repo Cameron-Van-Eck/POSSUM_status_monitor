@@ -605,8 +605,23 @@ def create_plots(ps,survey,basename):
 
 
 
-
-
+def get_obs_state(obs_info,i):
+    """Get the state of an observation, from a previously grabbed observation 
+    sheet. Return a short string describing the state.
+    i can be a single value (for one field), or a list. If a list, the return
+    value will be the most advanced state of all the fields selected.
+    """
+    if type(i) == int:
+        i=[i]
+    
+    status='planned'
+    if ((obs_info[i]['processed'] != '')  & ['REJECTED' not in x for x in obs_info[i]['validated']]).any():
+        status='observed'
+    if ((obs_info[i]['validated'] != '') & ['REJECTED' not in x for x in obs_info[i]['validated']]).any():
+        status='validated'
+    if (obs_info[i]['aus_src'] != '').any():
+        status='aus_src'
+    return status
 
 
 def aladin_webpage(ps,survey,outfile):
@@ -633,9 +648,12 @@ def aladin_webpage(ps,survey,outfile):
         if name1.startswith('EMU') and name1.endswith('B'): #Skip the 'B's, they have the same sky positions.
             continue
         elif name1.endswith('A'): #Add both A and B SBs to the 'A's
+            name1+='/B'
             sbid = obs_info[i]['sbid'] + ' ' + obs_info[i+1]['sbid']
+            state=get_obs_state(obs_info, [i,i+1])
         else:
             sbid = obs_info[i]['sbid']
+            state=get_obs_state(obs_info, i)
         if sbid == ' ':
             sbid = ''
     
@@ -648,12 +666,12 @@ def aladin_webpage(ps,survey,outfile):
         tc2 = sc.directional_offset_by(position_angle = PA2+rot1, separation=D)
         tc3 = sc.directional_offset_by(position_angle = -PA2+rot1, separation=D)
         tc4 = sc.directional_offset_by(position_angle = -PA1+rot1, separation=D)
-        field_corners.append( [name1,tc1.ra.deg,tc1.dec.deg,tc2.ra.deg,tc2.dec.deg,tc3.ra.deg,tc3.dec.deg,tc4.ra.deg,tc4.dec.deg] )
+        field_corners.append( [name1,tc1.ra.deg,tc1.dec.deg,tc2.ra.deg,tc2.dec.deg,tc3.ra.deg,tc3.dec.deg,tc4.ra.deg,tc4.dec.deg,state] )
     
     # Make all tile markers
     field_markers_aladin = []
     for (name,ra,dec,pa,sbid) in field_markers:
-        field_markers_aladin.append( f"field_cat.addSources([A.marker({ra},{dec},{{popupTitle: '{name}', popupDesc: '<em>RA:</em> {ra:.3f}<br/><em>Dec:</em> {dec:.3f}<br/><em>PA:</em> {pa:.1f}<br/>(J2000)'}})]);\n" ) 
+        field_markers_aladin.append( f"field_cat.addSources([A.marker({ra},{dec},{{popupTitle: '{name}', popupDesc: '<em>RA:</em> {ra:.3f}<br/><em>Dec:</em> {dec:.3f}<br/><em>PA:</em> {pa:.1f}<br/>(J2000)<br/><em>SBID:</em> {sbid}'}})]);\n" ) 
     
     #Make all field boxes
     field_corners_aladin = []
@@ -665,26 +683,28 @@ def aladin_webpage(ps,survey,outfile):
     #Observed fields only
     observed_corners_aladin = []
     field_corner_line =  'observed_field_overlay.addFootprints([A.polygon([{0}])]);\n'
-    for i,field in enumerate(field_corners):
-        if obs_info[i]['processed'] != '': #Catch only processed fields
+    for field in field_corners:
+        if field[-1] == 'observed': #Catch only processed fields
             corner1 = ', '.join( [ '[{0},{1}]'.format(field[i*2+1],field[i*2+2]) for i in range(4) ] )
             observed_corners_aladin.append( field_corner_line.format( corner1 ) ) 
     
     #Validated fields only
     validated_corners_aladin = []
     field_corner_line =  'validated_field_overlay.addFootprints([A.polygon([{0}])]);\n'
-    for i,field in enumerate(field_corners):
-        if obs_info[i]['validated'] != '': #Catch only processed fields
+    for field in field_corners:
+        if field[-1] == 'validated': #Catch only processed fields
             corner1 = ', '.join( [ '[{0},{1}]'.format(field[i*2+1],field[i*2+2]) for i in range(4) ] )
             validated_corners_aladin.append( field_corner_line.format( corner1 ) ) 
     
     #Pre-processed fields only
     aussrc_obs_corners_aladin = []
-    field_corner_line =  'validated_field_overlay.addFootprints([A.polygon([{0}])]);\n'
-    for i,field in enumerate(field_corners):
-        if obs_info[i]['aus_src'] != '': #Catch only processed fields
+    field_corner_line =  'processed_field_overlay.addFootprints([A.polygon([{0}])]);\n'
+    for field in field_corners:
+        if field[-1] == 'aus_src': #Catch only processed fields
             corner1 = ', '.join( [ '[{0},{1}]'.format(field[i*2+1],field[i*2+2]) for i in range(4) ] )
             aussrc_obs_corners_aladin.append( field_corner_line.format( corner1 ) ) 
+    
+    
     
     #Now process the tiles...
     tile_sheet=_get_sheet(ps,survey,'Tiles')
@@ -1209,8 +1229,8 @@ def auto_update(ps):
     update_observed_fields(ps)
 
     print('Updating plots.')
-    create_plots(ps,'p1','./Pilot_band1_status_')
-    create_plots(ps,'p2','./Pilot_band2_status_')
+#    create_plots(ps,'p1','./Pilot_band1_status_')
+#    create_plots(ps,'p2','./Pilot_band2_status_')
     create_plots(ps,'1','./Survey_band1_status_')
     create_plots(ps,'2','./Survey_band2_status_')
     create_overlap_plots(ps, './Survey_')
