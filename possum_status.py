@@ -34,6 +34,7 @@ import pyvo as vo
 import datetime
 import cartopy.crs as ccrs
 import subprocess
+from time import sleep
 
 
 def open_sheet(token_file):
@@ -155,12 +156,10 @@ def query_CASDA_TAP(sb):
     The validated date may be None if the SB has not been validated yet."""
     session=vo.tap.TAPService('https://casda.csiro.au/casda_vo_tools/tap')
     result=session.search(f"SELECT TOP 100 sbid,obs_start,obs_end,event_date,event_type,obs_program,project_code FROM casda.observation_event WHERE sbid = '{sb}' AND (project_code = 'AS103' OR project_code = 'AS203' )").to_table()
-    if (result['event_type'] == 'DEPOSITED').sum() > 1:
-        raise Exception("Wrong number of DEPOSITED events? What the heck?")
-    elif (result['event_type'] == 'DEPOSITED').sum() == 1:
+    if ((result['event_type'] == 'DEPOSITED') | (result['event_type'] == 'UPDATED')).sum() >= 1:
         start=result['obs_start'][0]
         end=result['obs_end'][0]
-        deposit_date=result[result['event_type'] == 'DEPOSITED']['event_date'][0]
+        deposit_date=result[(result['event_type'] == 'DEPOSITED') | (result['event_type'] == 'UPDATED')]['event_date'][0]
     else:
         start=None
         end=None
@@ -189,31 +188,35 @@ def update_observed_fields(ps):
     #Get as-is POSSUM status
     sheet = ps.worksheet('Survey Observations - Band 1')
     current_data=sheet.get_values()
+    sleep(1)
     current_data=at.Table(np.array(current_data)[1:],names=current_data[0])
 
     #Get current EMU status.
     obs_sh = ps.client.open_by_url("https://docs.google.com/spreadsheets/d/1HjSWDvwknndCi5PxTP4aDHYAdQiSliRYFVwZGf8YZJw")
     emu_obs=obs_sh.sheet1.get_values()
+    sleep(1)
     emu_obs=at.Table(np.array(emu_obs)[1:],names=emu_obs[0])
 
     #Update any new observations:
 
 
     #Catch observations that have had SB# added since last update.
-    new_obs = np.where((current_data['sbid'] == '') & (emu_obs['sbid'] != '0'))[0]
+    new_obs = np.where((current_data['sbid'] == '')  & (emu_obs['sbid'] != '0'))[0]
     #Update rows for all new observations (new SBs)
     for i in new_obs:
         sb=emu_obs[i]['sbid']
         sheet.update(f'P{i+2}',sb)
+        sleep(1)
 
 
     #Catch observations that have had SB# changed (reobservations) since last update.
     reobs = np.where((current_data['sbid'] != emu_obs['sbid']) & 
-                       (emu_obs['sbid'] != '0') & (current_data['sbid'] == ''))[0]
+                       (emu_obs['sbid'] != '0') & (current_data['sbid'] != ''))[0]
     # #Update rows for all new observations -- removing old obs dates and validation
     for i in reobs:
         sb=emu_obs[i]['sbid']
         sheet.update(f'N{i+2}',[['','',sb,'','']])
+        sleep(1)
 
 
     #Check recent observations for processing
@@ -227,6 +230,9 @@ def update_observed_fields(ps):
         
     #Check/update validation status for previously unvalidated observations
     awaiting_validation=np.where((current_data['processed'] != '') & (current_data['validated'] == ''))[0]
+    reject_sheet=ps.worksheet('Rejected Observations')
+
+
     for i in awaiting_validation:
         sb=current_data[i]['sbid']
         valid_date=query_CASDA_TAP(sb)[3]
@@ -234,15 +240,26 @@ def update_observed_fields(ps):
             if 'REJECTED' in valid_date:
                 sheet.update(f'R{i+2}',valid_date)
                 sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":1,"green": 0.,"blue": 0.}}})
+                sleep(2)
+                
+                row=sheet.get_values(f'A{i+2}:Z{i+2}')
+                testcol=reject_sheet.get_values("A:A")
+                sleep(2)
+                newrow_num=len(testcol)+1
+                reject_sheet.update(f'A{newrow_num}:Z{newrow_num}',row)
+                sleep(1)
+
+
             else:
                 sheet.update(f'R{i+2}',valid_date[0:10])
                 sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":0.,"green": 0.,"blue": 1.}}})
-
+                sleep(2)
 
 
     ##WALLABY
     sheet = ps.worksheet('Survey Observations - Band 2')
     current_data=sheet.get_values()
+    sleep(1)
     current_data=at.Table(np.array(current_data)[1:],names=current_data[0])
 
     
@@ -257,15 +274,17 @@ def update_observed_fields(ps):
     for i in new_obs:
         sb=emu_obs[i]['sbid']
         sheet.update(f'P{i+2}',sb)
+        sleep(1)
 
 
     #Catch observations that have had SB# changed (reobservations) since last update.
     reobs = np.where((current_data['sbid'] != emu_obs['sbid']) & 
-                       (emu_obs['sbid'] != '0') & (current_data['sbid'] == ''))[0]
+                       (emu_obs['sbid'] != '0') & (current_data['sbid'] != ''))[0]
     # #Update rows for all new observations -- removing old obs dates and validation
     for i in reobs:
         sb=emu_obs[i]['sbid']
         sheet.update(f'N{i+2}',[['','',sb,'','']])
+        sleep(1)
 
 
     #Check recent observations for processing
@@ -275,6 +294,7 @@ def update_observed_fields(ps):
         obs_start,obs_end,deposit_date=query_CASDA_TAP(sb)[0:3]
         if obs_start is not None:
             sheet.update(f'N{i+2}',[[obs_start,obs_end,sb,deposit_date[0:10]]])
+            sleep(1)
 
         
     #Check/update validation status for previously unvalidated observations
@@ -286,10 +306,19 @@ def update_observed_fields(ps):
             if 'REJECTED' in valid_date:
                 sheet.update(f'R{i+2}',valid_date)
                 sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":1,"green": 0.,"blue": 0.}}})
+                sleep(2)
+                
+                row=sheet.get_values(f'A{i+2}:Z{i+2}')
+                testcol=reject_sheet.get_values("A:A")
+                sleep(2)
+                newrow_num=len(testcol)+1
+                reject_sheet.update(f'A{newrow_num}:Z{newrow_num}',row)
+                sleep(1)
+
             else:
                 sheet.update(f'R{i+2}',valid_date[0:10])
                 sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":0.,"green": 0.,"blue": 1.}}})
-
+                sleep(2)
 
 
 
@@ -306,6 +335,7 @@ def update_aussrc_field_processed(ps,survey,sb):
     
     obs_sheet = _get_sheet(ps,survey,'Observations')
     current_data=obs_sheet.get_values()
+    sleep(1)
     current_data=at.Table(np.array(current_data)[1:],names=current_data[0])
     
     #Find row to update; assign today's date to aussrc column.
@@ -315,7 +345,7 @@ def update_aussrc_field_processed(ps,survey,sb):
     today=datetime.date.today().isoformat()
     obs_sheet.update(f'S{int(w)+2}',today) 
     obs_sheet.format(f'S{int(w)+2}',{'backgroundColorStyle':{"rgbColor": {"red":0.,"green": 1.,"blue": 0.}}})
-
+    sleep(2)
     
     #Get tiles that should have been produced:
     field_name=current_data[w]['name'][0]
@@ -323,6 +353,7 @@ def update_aussrc_field_processed(ps,survey,sb):
 
     tile_sheet = ps.worksheet('Survey Tiles - Band 1')
     tile_data=tile_sheet.get_values()
+    sleep(1)
     tile_data=at.Table(np.array(tile_data)[1:],names=tile_data[0])
     
     for tile in affected_tiles:
@@ -333,7 +364,7 @@ def update_aussrc_field_processed(ps,survey,sb):
             if tile_data[w][f'field{i}'] == field_name[4:]:
                 break
         tile_sheet.format(chr(ord('K')+i)+str(w[0]+2),{'backgroundColorStyle':{"rgbColor": {"red":0,"green": 1,"blue": 50/255.}}})
-
+        sleep(1)
 
 
 def update_aussrc_tile_processed(ps,survey,tile):
@@ -347,6 +378,7 @@ def update_aussrc_tile_processed(ps,survey,tile):
 
     tile_sheet = _get_sheet(ps,survey,'Tiles')
     tile_data=tile_sheet.get_values()
+    sleep(1)
     tile_data=at.Table(np.array(tile_data)[1:],names=tile_data[0])
 
     #Update status cell with date:
@@ -355,6 +387,7 @@ def update_aussrc_tile_processed(ps,survey,tile):
         raise Exception('Could not uniquely find tile row. Either missing or duplicated?')
     today=datetime.date.today().isoformat()
     tile_sheet.update(f'H{int(w)+2}',today) 
+    sleep(1)
 
     #Small function to get the right column name, accounting for the wrapping from Z to AA.
     def get_column(start,i):
@@ -372,7 +405,7 @@ def update_aussrc_tile_processed(ps,survey,tile):
             if w.size != 1:
                 raise Exception('Could not uniquely find tile row. Either missing or duplicated?')
             tile_sheet.format(get_column('U',i)+str(w[0]+2),{'backgroundColorStyle':{"rgbColor": {"red":0,"green": 1,"blue": 50/255.}}})
-
+            sleep(1)
 
 
 def create_plots(ps,survey,basename):
@@ -387,6 +420,7 @@ def create_plots(ps,survey,basename):
     #First the tile plots. Get the data from the relevant sheet.
     tile_sheet=_get_sheet(ps,survey,'Tiles')
     tile_info=tile_sheet.get_values()
+    sleep(1)
     tile_info=at.Table(np.array(tile_info)[1:],names=tile_info[0])
 
     #Since the tiles are HEALPix pixels, using the HealPy plotting functionality.
@@ -495,6 +529,7 @@ def create_plots(ps,survey,basename):
     #Now the observations.
     obs_sheet=_get_sheet(ps,survey,'Observations')
     obs_info=obs_sheet.get_values()
+    sleep(1)
     obs_info=at.Table(np.array(obs_info)[1:],names=obs_info[0])
 
     #Get the coordinates of each observation.
@@ -631,6 +666,7 @@ def aladin_webpage(ps,survey,outfile):
     #Get field list.
     obs_sheet=_get_sheet(ps,survey,'Observations')
     obs_info=obs_sheet.get_values()
+    sleep(1)
     obs_info=at.Table(np.array(obs_info)[1:],names=obs_info[0])
     
     #Constants relating to field size and orientation.
@@ -905,17 +941,21 @@ def create_overlap_plots(ps, basename):
     #Get all tiles planned for survey:
     tile_sheet=_get_sheet(ps,'1','Tiles')
     band1_tiles=tile_sheet.get_values()
+    sleep(1)
     band1_tiles=at.Table(np.array(band1_tiles)[1:],names=band1_tiles[0])
     tile_sheet=_get_sheet(ps,'2','Tiles')
     band2_tiles=tile_sheet.get_values()
+    sleep(1)
     band2_tiles=at.Table(np.array(band2_tiles)[1:],names=band2_tiles[0])
 
     #Get all observations planned for survey:
     obs_sheet=_get_sheet(ps,'1','Observations')
     band1_obs=obs_sheet.get_values()
+    sleep(1)
     band1_obs=at.Table(np.array(band1_obs)[1:],names=band1_obs[0])
     obs_sheet=_get_sheet(ps,'2','Observations')
     band2_obs=obs_sheet.get_values()
+    sleep(1)
     band2_obs=at.Table(np.array(band2_obs)[1:],names=band2_obs[0])
 
     #Initialize blank map. Find all tiles in survey area.
@@ -1303,6 +1343,29 @@ def cli():
     
     if args.auto_update is True:
         auto_update(ps)
+
+
+
+# def check_for_polar_cap_field():
+#     import requests
+#     gc = gspread.service_account(filename='/Users/cvaneck/.config/gspread/possum-status-monitor-01070fba10a2.json')
+#     ps= gc.open_by_url('https://docs.google.com/spreadsheets/d/1sWCtxSSzTwjYjhxr1_KVLWG2AnrHwSJf_RWQow7wbH0')
+#     obs_sh = ps.client.open_by_url("https://docs.google.com/spreadsheets/d/1HjSWDvwknndCi5PxTP4aDHYAdQiSliRYFVwZGf8YZJw")
+#     emu_obs=obs_sh.sheet1.get_values()
+#     emu_obs=at.Table(np.array(emu_obs)[1:],names=emu_obs[0])
+#     if emu_obs[emu_obs['name'] == 'EMU_0425-72']['sbid'][0] != '0':
+#         print(f"Polar cap field has been observed! It has SB {emu_obs[emu_obs['name'] == 'EMU_0425-72']['sbid'][0]}")
+                
+#         sbid=emu_obs[emu_obs['name'] == 'EMU_0425-72']['sbid'][0]
+#         requests.post('https://hooks.slack.com/services/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',
+#                       data='{"text":"Polar cap field has been observed! It has SB '+sbid+'"}',
+#                       headers={'content-type':'application/json'})
+#     else:
+#         requests.post('https://hooks.slack.com/services/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',
+#                       data='{"text":"Polar cap field has not been observed."}',
+#                       headers={'content-type':'application/json'})
+        
+
 
 
 if __name__ == "__main__":
