@@ -1346,25 +1346,6 @@ def cli():
 
 
 
-# def check_for_polar_cap_field():
-#     import requests
-#     gc = gspread.service_account(filename='/Users/cvaneck/.config/gspread/possum-status-monitor-01070fba10a2.json')
-#     ps= gc.open_by_url('https://docs.google.com/spreadsheets/d/1sWCtxSSzTwjYjhxr1_KVLWG2AnrHwSJf_RWQow7wbH0')
-#     obs_sh = ps.client.open_by_url("https://docs.google.com/spreadsheets/d/1HjSWDvwknndCi5PxTP4aDHYAdQiSliRYFVwZGf8YZJw")
-#     emu_obs=obs_sh.sheet1.get_values()
-#     emu_obs=at.Table(np.array(emu_obs)[1:],names=emu_obs[0])
-#     if emu_obs[emu_obs['name'] == 'EMU_0425-72']['sbid'][0] != '0':
-#         print(f"Polar cap field has been observed! It has SB {emu_obs[emu_obs['name'] == 'EMU_0425-72']['sbid'][0]}")
-                
-#         sbid=emu_obs[emu_obs['name'] == 'EMU_0425-72']['sbid'][0]
-#         requests.post('https://hooks.slack.com/services/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',
-#                       data='{"text":"Polar cap field has been observed! It has SB '+sbid+'"}',
-#                       headers={'content-type':'application/json'})
-#     else:
-#         requests.post('https://hooks.slack.com/services/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',
-#                       data='{"text":"Polar cap field has not been observed."}',
-#                       headers={'content-type':'application/json'})
-        
 
 
 
