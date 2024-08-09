@@ -33,8 +33,9 @@ import gspread
 import pyvo as vo
 import datetime
 import cartopy.crs as ccrs
-import subprocess
 from time import sleep
+import psycopg2
+import json
 
 
 def open_sheet(token_file):
@@ -64,6 +65,19 @@ def _get_sheet(ps,survey,data):
     return ps.worksheet(worksheet_name)
 
     
+def _access_database(auth_file):
+    """
+    Access the AusSRC database. Takes in a JSON filename (containing the login
+    information) and returns a connection object.
+    """
+    with open(auth_file,'r') as f:
+        db_details = json.load(f)
+
+    connection = psycopg2.connect(host=db_details['host'],
+                                  user=db_details['user'],
+                                  password=db_details['password'],
+                                  database='possum')
+    return connection
 
 def verify_sheet(ps):
     """Verifies that the Google Sheet file matches script expectations (in 
@@ -179,10 +193,11 @@ def query_CASDA_TAP(sb):
 
 
 
-def update_observed_fields(ps):
+def update_observed_fields(ps,db_auth_file):
     """Update the information on which fields have been observed, using
     Vanessa Moss' EMU and WALLABY spreadsheets plus CASDA as the information 
-    sources. Takes the POSSUM master sheet variable as input.
+    sources. Takes the POSSUM master sheet variable and the AusSRC database
+    authenatication file as inputs.
     """
 
     #Get as-is POSSUM status
@@ -218,6 +233,13 @@ def update_observed_fields(ps):
         sheet.update(f'N{i+2}',[['','',sb,'','']])
         sleep(1)
 
+    cancelled = np.where((current_data['sbid'] != emu_obs['sbid']) & 
+                       ((emu_obs['sbid'] == '0') & (current_data['sbid'] != '') & (current_data['processed'] == '')))[0]
+    for i in cancelled:
+        sb=emu_obs[i]['sbid']
+        sheet.update(f'N{i+2}',[['','','','','']])
+        sleep(1)
+
 
     #Check recent observations for processing
     awaiting_processing = np.where((current_data['sbid'] != '') & (current_data['obs_start'] == ''))[0]
@@ -226,6 +248,7 @@ def update_observed_fields(ps):
         obs_start,obs_end,deposit_date=query_CASDA_TAP(sb)[0:3]
         if obs_start is not None:
             sheet.update(f'N{i+2}',[[obs_start,obs_end,sb,deposit_date[0:10]]])
+            sleep(1)
 
         
     #Check/update validation status for previously unvalidated observations
@@ -254,6 +277,33 @@ def update_observed_fields(ps):
                 sheet.update(f'R{i+2}',valid_date[0:10])
                 sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":0.,"green": 0.,"blue": 1.}}})
                 sleep(2)
+
+
+    #Check for AusSRC processing status
+    connection = _access_database(db_auth_file)
+    cursor = connection.cursor()
+    try:
+        cursor.execute("""SELECT name,sbid,cube_update FROM possum.observation 
+        WHERE cube_state = 'COMPLETED' AND band = '1'  """)
+        db_data=cursor.fetchall()
+    finally:
+        connection.rollback()
+    db_data=at.Table(np.array(db_data),names=['name','sbid','cube_update'])
+    db_data['sbid'] = [ x.split('-')[1] for x in db_data['sbid']] #get rid of first part of  'ASKAP-<sbid>'
+
+    for i,sb in enumerate(db_data['sbid']): #Iterate through all processed SBs to see if status is new.
+        sb_row = np.where(current_data['sbid'] == sb)[0]
+        if sb_row.size != 1:
+            print(f"For some reason there's either zero or more than 1 sb={sb} rows in the status monitor?")
+            continue
+        if (current_data[sb_row[0]]['validated'] != '') and (current_data[sb_row[0]]['validated'].startswith('20')):
+            if (current_data[sb_row[0]]['aus_src'] == '') or (current_data[sb_row[0]]['aus_src'] != db_data[i]['cube_update'].strftime("%Y-%m-%d")):
+                #Update cell if blank or has different timestamp
+                #print(f'S{sb_row[0]+2}',db_data[i]['cube_update'].strftime("%Y-%m-%d"))
+                sheet.update(f'S{sb_row[0]+2}',db_data[i]['cube_update'].strftime("%Y-%m-%d"))
+                sheet.format(f'S{sb_row[0]+2}',{'backgroundColorStyle':{"rgbColor": {"red":0,"green": 1.,"blue": 0.}}})
+                sleep(2)
+
 
 
     ##WALLABY
@@ -319,6 +369,31 @@ def update_observed_fields(ps):
                 sheet.update(f'R{i+2}',valid_date[0:10])
                 sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":0.,"green": 0.,"blue": 1.}}})
                 sleep(2)
+
+    try:
+        cursor.execute("""SELECT name,sbid,cube_update FROM possum.observation 
+        WHERE cube_state = 'COMPLETED' AND band = '2'  """)
+        db_data=cursor.fetchall()
+    finally:
+        connection.rollback()
+    connection.close()
+    db_data=at.Table(np.array(db_data),names=['name','sbid','cube_update'])
+    db_data['sbid'] = [ x.split('-')[1] for x in db_data['sbid']] #get rid of first part of  'ASKAP-<sbid>'
+
+    for i,sb in enumerate(db_data['sbid']): #Iterate through all processed SBs to see if status is new.
+        sb_row = np.where(current_data['sbid'] == sb)[0]
+        if sb_row.size != 1:
+            print(f"For some reason there's either zero or more than 1 sb={sb} rows in the status monitor?")
+            continue
+        if (current_data[sb_row[0]]['validated'] != '') and (current_data[sb_row[0]]['validated'].startswith('20')):
+            if (current_data[sb_row[0]]['aus_src'] == '') or (current_data[sb_row[0]]['aus_src'] != db_data[i]['cube_update'].strftime("%Y-%m-%d")):
+                #Update cell if blank or has different timestamp
+                #print(f'S{sb_row[0]+2}',db_data[i]['cube_update'].strftime("%Y-%m-%d"))
+                sheet.update(f'S{sb_row[0]+2}',db_data[i]['cube_update'].strftime("%Y-%m-%d"))
+                sheet.format(f'S{sb_row[0]+2}',{'backgroundColorStyle':{"rgbColor": {"red":0,"green": 1.,"blue": 0.}}})
+                sleep(2)
+
+
 
 
 
@@ -429,13 +504,13 @@ def create_plots(ps,survey,basename):
     tile_map[tile_info['tile_id'].astype('int')] = 1 #Set 1 = inside survey area.
     tile_map[tile_info['tile_id'].astype('int')[tile_info['aus_src'] != '']] = 2
     
-    pipeline=np.vstack((tile_info['1d_pipeline_main'] != '',
-                             tile_info['1d_pipeline_borders'] != '',
-                             tile_info['3d_pipeline'] != ''))
-
-    tile_map[tile_info['tile_id'].astype('int')[tile_info['1d_pipeline_main'] != '']] = 3
-    tile_map[tile_info['tile_id'].astype('int')[tile_info['3d_pipeline'] != '']] = 4
-    tile_map[tile_info['tile_id'].astype('int')[(tile_info['1d_pipeline_main'] != '') & (tile_info['3d_pipeline'] != '')]] = 5
+    pipeline=np.vstack(([x.startswith('20') for x in tile_info['1d_pipeline_main']],
+                        [x.startswith('20') for x in tile_info['1d_pipeline_borders']],
+                        [x.startswith('20') for x in tile_info['3d_pipeline']]))
+    
+    tile_map[tile_info['tile_id'].astype('int')[[x.startswith('20') for x in tile_info['1d_pipeline_main'] ] ]] = 3
+    tile_map[tile_info['tile_id'].astype('int')[[x.startswith('20') for x in tile_info['3d_pipeline']]]] = 4
+    tile_map[tile_info['tile_id'].astype('int')[ np.array([x.startswith('20') for x in tile_info['1d_pipeline_main']]) & np.array([x.startswith('20') for x in tile_info['3d_pipeline']])]] = 5
     tile_map[tile_info['tile_id'].astype('int')[np.all(pipeline,axis=0)]] = 6
     
     
@@ -750,9 +825,9 @@ def aladin_webpage(ps,survey,outfile):
     #Make markers:
     tile_markers_aladin = []
     for row in tile_info:
-        if row['1d_pipeline_main'] != '' and '-' in row['1d_pipeline_borders'] and row['3d_pipeline'] != '':
+        if row['1d_pipeline_main'].startswith('20') and '-' in row['1d_pipeline_borders'] and row['3d_pipeline'].startswith('20'):
             status = 'Fully Processed'
-        elif row['1d_pipeline_main'] != '' or row['1d_pipeline_borders'] != '' or row['3d_pipeline'] != '':
+        elif row['1d_pipeline_main'].startswith('20') or row['1d_pipeline_borders'].startswith('20') or row['3d_pipeline'].startswith('20'):
             status = 'Partially Processed'
         elif row['aus_src'] != '':
             status = 'Mosiacked'
@@ -780,8 +855,8 @@ def aladin_webpage(ps,survey,outfile):
     #Partially processed tiles:
     partial_tile_corners_aladin = []
     for row in tile_info:
-        if row['1d_pipeline_main'] != '' and '-' in row['1d_pipeline_borders'] and row['3d_pipeline'] != '': continue
-        if not (row['1d_pipeline_main'] != '' or row['1d_pipeline_borders'] != '' or row['3d_pipeline'] != ''): continue
+        if row['1d_pipeline_main'].startswith('20') and '-' in row['1d_pipeline_borders'] and row['3d_pipeline'].startswith('20'): continue
+        if not (row['1d_pipeline_main'].startswith('20') or row['1d_pipeline_borders'].startswith('20') or row['3d_pipeline'].startswith('20')): continue
         coords=np.array(hp.vec2ang(hp.boundaries(32,int(row['tile_id']),step=1).T,lonlat=True)).T.tolist()
         corner = ','.join([f'[{ra},{dec}]' for ra,dec in iter(coords)])
         partial_tile_corners_aladin.append('partial_tile_overlay.addFootprints([A.polygon([{0}])]);\n'.format(corner))
@@ -789,7 +864,7 @@ def aladin_webpage(ps,survey,outfile):
     #Fully processed tiles:
     completed_tile_corners_aladin = []
     for row in tile_info:
-        if not (row['1d_pipeline_main'] != '' and '-' in row['1d_pipeline_borders'] and row['3d_pipeline'] != ''): continue
+        if not (row['1d_pipeline_main'].startswith('20') and '-' in row['1d_pipeline_borders'] and row['3d_pipeline'].startswith('20')): continue
         coords=np.array(hp.vec2ang(hp.boundaries(32,int(row['tile_id']),step=1).T,lonlat=True)).T.tolist()
         corner = ','.join([f'[{ra},{dec}]' for ra,dec in iter(coords)])
         completed_tile_corners_aladin.append('completed_tile_overlay.addFootprints([A.polygon([{0}])]);\n'.format(corner))
@@ -1259,14 +1334,14 @@ def create_overlap_plots(ps, basename):
 
 
 
-def auto_update(ps):
+def auto_update(ps,db_auth_file):
     """Update the sheet with the latest observation statuses, generate a new
     set of figures for all surveys, generate new Aladin Lite pages, and
     upload all results to CANFAR for use on the website.
     
     """
     print('Updating sheet.')
-    update_observed_fields(ps)
+    update_observed_fields(ps,db_auth_file)
 
     print('Updating plots.')
 #    create_plots(ps,'p1','./Pilot_band1_status_')
@@ -1294,8 +1369,10 @@ def cli():
 
     parser = argparse.ArgumentParser(description=descStr,
                                  formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("token_file", metavar="token.json",
-                        help="ASCII file containing Stokes spectra & errors.")
+    parser.add_argument("Google_token_file", metavar="token.json",
+                        help="JSON file containing Google API key.")
+    parser.add_argument("db_auth_file", metavar="db_details.json",
+                        help="JSON file containing AusSRC database details.")
     parser.add_argument("-s", dest="survey", default='1',type=str,
                         help="Specify survey and band: p1/p2 for pilot, 1/2 for full survey band 1/2. Default: 1")    
     parser.add_argument("-o", dest="update_obs", action="store_true",
@@ -1319,11 +1396,11 @@ def cli():
     args = parser.parse_args()
 
 
-    ps = open_sheet(args.token_file)
+    ps = open_sheet(args.Google_token_file)
     verify_sheet(ps)
 
     if args.update_obs:
-        update_observed_fields(ps)
+        update_observed_fields(ps,args.db_auth_file)
 
     if args.aussrc_field is not None:
         update_aussrc_field_processed(ps,args.survey,args.aussrc_field)
@@ -1342,7 +1419,7 @@ def cli():
 
     
     if args.auto_update is True:
-        auto_update(ps)
+        auto_update(ps,args.db_auth_file)
 
 
 
