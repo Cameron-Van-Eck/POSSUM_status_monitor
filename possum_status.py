@@ -56,7 +56,7 @@ def _get_sheet(ps,survey,data):
         ps: master sheet variable
         survey (str): survey to process: '1'/'2' for full survey band 1/2, 
                         'p1'/'p2' for pilot survey.
-        data: 'Tiles' or 'Observations'
+        data: 'Tiles' or 'Fields'
     """
     if survey[0].lower() == 'p':
         worksheet_name = f'Pilot {data} - Band {survey[1]}'
@@ -192,8 +192,194 @@ def query_CASDA_TAP(sb):
     return start,end,deposit_date,valid_date
 
 
+def update_observation_sheet(ps):
+    #Get all (full-survey) SBs:
+    session=vo.tap.TAPService('https://casda.csiro.au/casda_vo_tools/tap')
+    result=session.search("SELECT sbid,obs_start,obs_end,obs_program,event_date,event_type FROM casda.observation_event WHERE (project_code = 'AS203') ORDER BY sbid").to_table()
+    
+    #Get previously known observations:
+    obs_sheet=ps.worksheet('All Observations')
+    obs_data=obs_sheet.get_values()
+    obs_data=at.Table(np.array(obs_data)[1:],names=obs_data[0])
+    
+    #New observations, add as new rows to table.
+    new_sbs=list(set(np.unique(result['sbid'])) - set(obs_data['sbid']))
+    new_sbs.sort()
+    for sb in new_sbs:
+        casda_row=result[(result['sbid']==sb) & (result['event_type']=='DEPOSITED')][0]
+    
+        ivoa_result=session.search(f"SELECT quality_level,filename,obs_id FROM ivoa.obscore WHERE obs_id='ASKAP-{sb}' AND dataproduct_subtype='catalogue.polarisation.component'").to_table()
+        field_name=ivoa_result['filename'][0].split('.')[2]
+        
+        row=[field_name, str(sb), casda_row['obs_program'], casda_row['obs_start'], casda_row['obs_end'], casda_row['event_date'][0:10], '', 'NOT_VALIDATED', 'DEPOSITED']
+        obs_sheet.append_row(row)
+        sleep(1)
+    
+    #Update sheet:
+    obs_data=obs_sheet.get_values()
+    obs_data=at.Table(np.array(obs_data)[1:],names=obs_data[0])
+    
+    #Update all validation statuses that have changed:
+    for sb in obs_data['sbid']:
+        casda_events=result[result['sbid'] == sb]
+        event=(casda_events['event_type'] == 'RELEASED') | (casda_events['event_type'] == 'REJECTED')
+        if event.sum() > 0:
+            event=np.where(event)[0][np.argmax(casda_events[event]['event_date'])]
+            validation_date=casda_events[event]['event_date'][0:10]
+            if casda_events[event]['event_type']=='REJECTED':
+                validation_date='REJECTED - '+validation_date
+                state='REJECTED'
+            else:
+                state='RELEASED'
+            if validation_date not in obs_data[obs_data['sbid']==sb][0]['validated']:
+                ivoa_result=session.search(f"SELECT quality_level,filename,obs_id FROM ivoa.obscore WHERE obs_id='ASKAP-{sb}' AND dataproduct_subtype='catalogue.polarisation.component'").to_table()
+                validation_level=ivoa_result[0]['quality_level']
+        
+                i=np.where(obs_data['sbid']==sb)[0][0]
+                obs_sheet.update(f'G{i+2}',[[validation_date,validation_level,state]])
+                sleep(1)
 
-def update_observed_fields(ps,db_auth_file):
+
+
+def update_field_sheet(ps,band):
+    obs_sheet=ps.worksheet('All Observations')
+    obs_data=obs_sheet.get_values()
+    obs_data=at.Table(np.array(obs_data)[1:],names=obs_data[0])
+    sleep(1)
+    
+    field_sheet=ps.worksheet(f'Survey Fields - Band {band}')
+    field_data=field_sheet.get_values()
+    field_data=at.Table(np.array(field_data)[1:],names=field_data[0])
+    sleep(1)
+    
+    if band == '1':
+        band_obs=obs_data[obs_data['project'] == 'EMU Survey']
+    elif band == '2':
+        band_obs=obs_data[obs_data['project'] == 'WALLABY']
+    else:
+        raise Exception(f"Band must be '1' or '2'. Got '{band}'; what do I do with this?.")
+        
+    observed_fields=np.unique(band_obs['name'])
+    
+    other_sheet=ps.worksheet('Other Obs.')
+    other_data=other_sheet.get_values()
+    other_data=at.Table(np.array(other_data)[1:],names=other_data[0])
+
+    for field in observed_fields:
+        field_observations=band_obs[band_obs['name'] == field] #All observations of this field
+        field_idx=np.where(field_data['name'] == field)[0][0]+2 #Row number in spreadsheet
+    
+        #Case 1/2: at least one validated observation
+        if np.char.startswith(field_observations['validated'],'20').sum() > 0:
+            validated=np.char.startswith(field_observations['validated'],'20')
+            idx=np.argmin(field_observations[validated]['validated'])
+            obs=field_observations[validated][idx] #This is the first validated observation. Use this one.
+            #Update only if it doesn't match any of the current validated SBs
+            if field_data[field_idx-2]['validated'] not in field_observations[validated]['validated']:
+                field_sheet.update(f'N{field_idx}',[[obs['obs_start'],obs['obs_end'], obs['sbid'], obs['deposited'], obs['validated']]])
+                sleep(1)
+                #print(f"Field {field} is validated.")
+    
+            #Process duplicate SBs to Other Obs. sheet.
+            if validated.sum() > 1:
+            #First, confirm which is currently in the main sheet. No need to send that one to "Other Obs."
+                if field_data[field_idx-2]['sbid'] == '':
+                    good_sbid=obs['sbid']
+                else:
+                    good_sbid=field_data[field_idx-2]['sbid']
+                
+                extra_obs=field_observations[np.char.startswith(field_observations['validated'],'20') & (field_observations['sbid'] != good_sbid)]
+                
+                for obs in extra_obs:
+                    if obs['sbid'] not in other_data['sbid']:
+                        field_row=field_data[field_data['name'] == obs['name']][0]
+                        other_sheet.append_row([obs['name'], field_row['ra'], field_row['dec'], field_row['ra_deg'], field_row['dec_deg'],
+                                                 field_row['gl'], field_row['gb'], field_row['rotation'], field_row['duration'], 
+                                                 field_row['centrefreq'], field_row['bandwidth'], field_row['footprint'], '', obs['obs_start'],
+                                                 obs['obs_end'], obs['sbid'], obs['deposited'], obs['validated'],'', 
+                                                 "[AUTO: Duplicated validated observation. Automatically added here by status monitor script. Confirm that AusSRC is not using this observation.]"	 ])
+    
+        #Case 3: No validated observation
+        #    3a: Not-yet-validated observation
+        elif (field_observations['current_state'] == 'DEPOSITED').sum() == 1:
+            new= (field_observations['current_state'] == 'DEPOSITED')
+            if new.sum() > 1:
+                raise Exception(f"Two unvalidated SBs for same field ({field})??? Double check.")
+            obs=field_observations[new][0]
+            #Update only if it doesn't match the current value
+            if field_data[field_idx-2]['sbid'] != obs['sbid']:
+                field_sheet.update(f'N{field_idx}',[[obs['obs_start'],obs['obs_end'], obs['sbid'], obs['deposited'], obs['validated']]])
+                sleep(1)
+                #print(f"Field {field} is observed.")
+            
+        #    3b: Only rejected observations
+        elif np.char.startswith(field_observations['validated'],'REJECTED').sum() > 0:
+            rejected=np.char.startswith(field_observations['validated'],'REJECTED')
+            idx=np.argmax(field_observations[rejected]['validated'])
+            obs=field_observations[rejected][idx] #This is the more recent rejected observation. Use this one.
+            #Update only if it doesn't match the current value
+            if field_data[field_idx-2]['validated'] != obs['validated']:
+                field_sheet.update(f'N{field_idx}',[[obs['obs_start'],obs['obs_end'], obs['sbid'], obs['deposited'], obs['validated']]])
+                sleep(1)
+                #print(f"Field {field} is rejected.")
+    
+        else:    
+            raise Exception(f"Very confused. Field {field} doesn't match known categories for observed fields. Logic error somewhere.")
+
+
+def update_aussrc_observation_status(ps,db_auth_file,band):
+
+    connection = _access_database(db_auth_file)
+    cursor = connection.cursor()
+
+    try:
+        cursor.execute(f"""SELECT name,sbid,cube_update FROM possum.observation 
+        WHERE cube_state = 'COMPLETED' AND band = '{band}'  """)
+        db_data=cursor.fetchall()
+    finally:
+        connection.rollback()
+    db_data=at.Table(np.array(db_data),names=['name','sbid','cube_update'])
+    db_data['sbid'] = [ x.split('-')[1] for x in db_data['sbid']] #get rid of first part of  'ASKAP-<sbid>'
+
+    field_sheet=ps.worksheet(f'Survey Fields - Band {band}')
+    field_data=field_sheet.get_values()
+    field_data=at.Table(np.array(field_data)[1:],names=field_data[0])
+    sleep(1)
+
+    for row in db_data:
+        field_idx=np.where(field_data['name'] == row['name'])[0][0]
+        if field_data[field_idx]['sbid'] != row['sbid']:
+            raise Exception(f"For field {row['name']}, AusSRC reports SBid = {row['sbid']} while status sheet uses SBid = {field_data[field_idx]['sbid']}. Correct before continuing.")
+        if (field_data[field_idx]['aus_src'] != row['cube_update'].strftime("%Y-%m-%d")):
+                    #Update cell if blank or has different timestamp
+            #print(f'S{field_idx+2}',row['cube_update'].strftime("%Y-%m-%d"))
+            field_sheet.update(f'S{field_idx+2}',row['cube_update'].strftime("%Y-%m-%d"))
+            sleep(1)
+
+
+
+def update_observation_status(ps,db_auth_file):
+    """Update the status spreadsheets, specifically the All Observations sheet
+    and the Field sheets (both bands). Updates new observations, new validation
+    status, and new AusSRC status. Will detect (and halt on) SBID conflicts between
+    the sheet and the AusSRC database.
+    """
+
+    #Get observations from CASDA and update All Observations sheet:
+    update_observation_sheet(ps)
+        
+    #Tranfer updates to the field sheets:
+    update_field_sheet(ps, '1')
+    update_field_sheet(ps, '2')
+
+    #Update AusSRC processing status. Check AusSRC database for SBID mis-matches.
+    update_aussrc_observation_status(ps,db_auth_file,'1')
+    update_aussrc_observation_status(ps,db_auth_file,'2')
+
+
+
+
+def update_observed_fields_old(ps,db_auth_file):
     """Update the information on which fields have been observed, using
     Vanessa Moss' EMU and WALLABY spreadsheets plus CASDA as the information 
     sources. Takes the POSSUM master sheet variable and the AusSRC database
@@ -602,7 +788,7 @@ def create_plots(ps,survey,basename):
 
 
     #Now the observations.
-    obs_sheet=_get_sheet(ps,survey,'Observations')
+    obs_sheet=_get_sheet(ps,survey,'Fields')
     obs_info=obs_sheet.get_values()
     sleep(1)
     obs_info=at.Table(np.array(obs_info)[1:],names=obs_info[0])
@@ -620,24 +806,22 @@ def create_plots(ps,survey,basename):
 
 
     status=np.array([ 1 if x != '' else 0 for x in obs_info['sbid']])
-    status[obs_info['processed'] != ''] = 2
-    status[obs_info['validated'] != ''] = 4
-    status[np.char.startswith(obs_info['validated'],'REJECTED')] = 3
-    status[obs_info['aus_src'] != ''] = 5
+    status[obs_info['processed'] != ''] = 1
+    status[obs_info['validated'] != ''] = 3
+    status[np.char.startswith(obs_info['validated'],'REJECTED')] = 2
+    status[obs_info['aus_src'] != ''] = 4
 
     #
     col_dict={0:"grey",
-              1: "yellow",
-              2:"orange",
-              3:'tomato',
-              4:"blue",
-              5:"green"}
+              1:"orange",
+              2:'tomato',
+              3:"blue",
+              4:"green"}
     labels = np.array([f'Unobserved ({(status==0).sum()})',
-                       f'Observed ({(status==1).sum()})',
-                       f'Observatory\nProcessed ({(status==2).sum()})',
-                       f'Rejected ({(status==3).sum()})',
-                       f'Released ({(status==4).sum()})',
-                       f'AusSRC\nProcessed ({(status==5).sum()})',
+                       f'Observatory\nProcessed ({(status==1).sum()})',
+                       f'Rejected ({(status==2).sum()})',
+                       f'Released ({(status==3).sum()})',
+                       f'AusSRC\nProcessed ({(status==4).sum()})',
                       ])
     cm = mpl.colors.ListedColormap([col_dict[x] for x in col_dict.keys()])
     norm_bins = np.sort([*col_dict.keys()]) + 0.5
@@ -739,7 +923,7 @@ def aladin_webpage(ps,survey,outfile):
     that show the POSSUM status (both observations and tiles).
     """
     #Get field list.
-    obs_sheet=_get_sheet(ps,survey,'Observations')
+    obs_sheet=_get_sheet(ps,survey,'Fields')
     obs_info=obs_sheet.get_values()
     sleep(1)
     obs_info=at.Table(np.array(obs_info)[1:],names=obs_info[0])
@@ -1024,11 +1208,11 @@ def create_overlap_plots(ps, basename):
     band2_tiles=at.Table(np.array(band2_tiles)[1:],names=band2_tiles[0])
 
     #Get all observations planned for survey:
-    obs_sheet=_get_sheet(ps,'1','Observations')
+    obs_sheet=_get_sheet(ps,'1','Fields')
     band1_obs=obs_sheet.get_values()
     sleep(1)
     band1_obs=at.Table(np.array(band1_obs)[1:],names=band1_obs[0])
-    obs_sheet=_get_sheet(ps,'2','Observations')
+    obs_sheet=_get_sheet(ps,'2','Fields')
     band2_obs=obs_sheet.get_values()
     sleep(1)
     band2_obs=at.Table(np.array(band2_obs)[1:],names=band2_obs[0])
@@ -1341,7 +1525,8 @@ def auto_update(ps,db_auth_file):
     
     """
     print('Updating sheet.')
-    update_observed_fields(ps,db_auth_file)
+    #update_observed_fields_old(ps,db_auth_file)
+    update_observation_status(ps,db_auth_file)
 
     print('Updating plots.')
 #    create_plots(ps,'p1','./Pilot_band1_status_')
@@ -1397,10 +1582,10 @@ def cli():
 
 
     ps = open_sheet(args.Google_token_file)
-    verify_sheet(ps)
+    #verify_sheet(ps)
 
     if args.update_obs:
-        update_observed_fields(ps,args.db_auth_file)
+        update_observation_status(ps,args.db_auth_file)
 
     if args.aussrc_field is not None:
         update_aussrc_field_processed(ps,args.survey,args.aussrc_field)
