@@ -84,30 +84,62 @@ def notify_slack(webhook,current_sbs,state_dict):
                  " or something in Cameron's script has broken. Someone should double check on CASDA.")
         
     else:
-        oldest_age = max(current_sbs.values())
+
+        EMU_sb = [x for x in state_dict if (state_dict[x][0] == 'EMU')  ]
+        EMU_ages = [current_sbs[x] for x in EMU_sb]
+
+        WALLABY_sb = [x for x in state_dict if (state_dict[x][0] == 'WALLABY')  ]
+        WALLABY_ages = [current_sbs[x] for x in WALLABY_sb]
+
+
+        oldest_age = max(EMU_ages)
         sb_count=len(current_sbs)
     
         message=('This is a biweekly automatic update on validation status.\n'
                 f'There are currently {sb_count} SBs awaiting validation.\n'
-                f'The oldest is {oldest_age:.1f} days old.')
+                f'The oldest EMU SB is {oldest_age:.1f} days old.\n'
+                f'The oldest WALLABY SB is {max(WALLABY_ages):.1f} days old.\n')
     
+
+
         #Send warning if SBs are close to deadline
-        if oldest_age > warning_age_threshold:
-            message+=(f'\n @channel *Warning: at least one SB is older than {warning_age_threshold} days.* '
+        if max(EMU_ages) > warning_age_threshold:
+            message+=(f'\n @channel *Warning: at least one EMU SB is older than {warning_age_threshold} days.* '
                       'Please validate before it hits 30 days to prevent an observation lockout.\n'
-                      f'SBs above warning threshold: {[x for x in current_sbs if current_sbs[x] > warning_age_threshold ]}\n')
+                      f'EMU SBs above warning threshold: {[x for x in EMU_sb if current_sbs[x] > warning_age_threshold ]}\n')
     
-        #Sort by states. Don't care about WALLABY validation status.
+        message+='\nEMU SBs:\n'
+    
+            #Sort by states.
         sb_waiting = [x for x in state_dict if (state_dict[x][1] == 'WAITING') and (state_dict[x][0] == 'EMU')  ]
-        sb_ready = [x for x in state_dict if (state_dict[x][1] == 'VALIDATED') or (state_dict[x][0] == 'WALLABY')  ]
-        sb_reject = [x for x in state_dict if (state_dict[x][1] == 'REJECTED') and (state_dict[x][0] == 'EMU')  ]
+        sb_ready = [x for x in state_dict if (state_dict[x][1] == 'VALIDATED')  and (state_dict[x][0] == 'EMU')   ]
+        sb_reject = [x for x in state_dict if (state_dict[x][1] == 'REJECTED')  and (state_dict[x][0] == 'EMU')  ]
     
         if len(sb_ready) > 0:
-            message+=f'The following SBs are ready for validation: {sb_ready}\n'
+            message+=f'    Ready for validation: {sb_ready}\n'
         if len(sb_reject) > 0:
-            message+=f'The following SBs are rejected by EMU: {sb_reject}\n'
+            message+=f'    Rejected by EMU: {sb_reject}\n'
         if len(sb_waiting) > 0:
-            message+=f'The following SBs are still waiting for EMU validation: {sb_waiting}\n'
+            message+=f'    Waiting for EMU validation: {sb_waiting}\n'
+        if len(sb_waiting)+len(sb_ready)+len(sb_reject) == 0:
+            message+='    No EMU SBs in the queue.\n'
+        
+
+        message+='\nWALLABY SBs:\n'
+    
+            #Sort by states.
+        sb_waiting = [x for x in state_dict if (state_dict[x][1] == 'WAITING') and (state_dict[x][0] == 'WALLABY')  ]
+        sb_ready = [x for x in state_dict if (state_dict[x][1] == 'VALIDATED')  and (state_dict[x][0] == 'WALLABY')   ]
+        sb_reject = [x for x in state_dict if (state_dict[x][1] == 'REJECTED')  and (state_dict[x][0] == 'WALLABY')  ]
+    
+        if len(sb_ready) > 0:
+            message+=f'    Ready for validation: {sb_ready}\n'
+        if len(sb_reject) > 0:
+            message+=f'    Rejected by WALLABY: {sb_reject}\n'
+        if len(sb_waiting) > 0:
+            message+=f'    Waiting for WALLABY validation: {sb_waiting}\n'
+        if len(sb_waiting)+len(sb_ready)+len(sb_reject) == 0:
+            message+='    No WALLABY SBs in the queue.\n'
     
     
     requests.post(webhook,json={"parse":"full",'text':message})
@@ -115,7 +147,7 @@ def notify_slack(webhook,current_sbs,state_dict):
     
     
     
-def check_EMU_validation_state(sb_list):
+def check_validation_state(sb_list):
     
     session=vo.tap.TAPService('https://casda.csiro.au/casda_vo_tools/tap')
 
@@ -168,7 +200,7 @@ def run():
     
     
     current_sbs=get_unvalidated_SBs()
-    state_dict=check_EMU_validation_state(list(current_sbs))
+    state_dict=check_validation_state(list(current_sbs))
     notify_slack(webhook,current_sbs,state_dict)
 
 
