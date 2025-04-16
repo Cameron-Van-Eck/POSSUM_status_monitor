@@ -301,15 +301,16 @@ def update_field_sheet(ps,band):
     
         #Case 3: No validated observation
         #    3a: Not-yet-validated observation
-        elif (field_observations['current_state'] == 'DEPOSITED').sum() == 1:
+        elif (field_observations['current_state'] == 'DEPOSITED').sum() >= 1:
             new= (field_observations['current_state'] == 'DEPOSITED')
-            if new.sum() > 1:
-                raise Exception(f"Two unvalidated SBs for same field ({field})??? Double check.")
-            obs=field_observations[new][0]
-            #Update only if it doesn't match the current value
-            if field_data[field_idx-2]['sbid'] != obs['sbid']:
-                field_sheet.update(f'N{field_idx}',[[obs['obs_start'],obs['obs_end'], obs['sbid'], obs['deposited'], obs['validated']]])
-                sleep(1)
+            if new.sum() > 1: #If more than one unvalidated version, leave it blank until duplication is resolved.
+                print(f"Two unvalidated SBs for same field ({field})! SB#s {field_observations[new]['sbid']}")
+            else:
+                obs=field_observations[new][0]
+                #Update only if it doesn't match the current value
+                if field_data[field_idx-2]['sbid'] != obs['sbid']:
+                    field_sheet.update(f'N{field_idx}',[[obs['obs_start'],obs['obs_end'], obs['sbid'], obs['deposited'], obs['validated']]])
+                    sleep(1)
                 #print(f"Field {field} is observed.")
             
         #    3b: Only rejected observations
@@ -1518,6 +1519,138 @@ def create_overlap_plots(ps, basename):
 
 
 
+def single_SB_pipeline_plot(ps,band='1'):
+    """Plot the SBs that have been processed through the single-SB pipelines.
+    Color them depending on whether they're processed by Dave or Erik."""
+    
+    sheet=ps.worksheet(f'Survey Fields - Band {band}')
+    data=sheet.get_values()
+    data=at.Table(np.array(data)[1:],names=data[0])
+    dave_SBs = data[data['Dave_1D_pipeline']!='']['sbid','name']
+
+    partial = [ x.startswith('PartialTiles') for x in data['single_SB_1D_pipeline'] ]
+    partial_SBs = data[partial]['sbid','name']
+                
+    #Beam list:
+    import pandas as pd
+    POSSUM_band1_beams_csv_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3RSYoKuPaXeKszfbmQkN5f-_mXSBcQaIDRT-7TmtzZ2mB_2iLP9ON-VCVQnnuX-hJfZ0CHstcKb79/pub?output=csv"
+    POSSUM_band2_beams_csv_url = "https://github.com/candersoncsiro/POSSUM/raw/refs/heads/main/survey_coverage/full_survey_band2_beam_center.csv"
+    if band == '1':
+        df = pd.read_csv(POSSUM_band1_beams_csv_url)
+        name_len=4
+    else: 
+        df = pd.read_csv(POSSUM_band2_beams_csv_url)
+        name_len=8
+    beam_positions_table = at.Table.from_pandas(df)
+    skycoords = ac.SkyCoord(ra=beam_positions_table['beam center ra [deg]'], dec=beam_positions_table['beam center dec [deg]'], frame='fk5',unit='deg')
+    beam_positions_table['skycoords'] = skycoords
+    
+
+
+    plt.figure(figsize=(12,6))
+    ax=plt.subplot(projection=ccrs.Mollweide())
+    ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,-45,-90,-135,-179.99],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
+    ax.set_global()
+    
+    
+    for SB in dave_SBs:
+        for c in beam_positions_table[beam_positions_table['SB'] == SB['name'][name_len:]]['skycoords']:
+            ax.add_patch(plt.Circle((-1*c.ra.deg,c.dec.deg),radius=1.2*(1300/1440)*0.95,
+                                    alpha=0.3,fc='tab:purple',transform=ccrs.PlateCarree())) 
+        ax.text(-1*beam_positions_table[beam_positions_table['SB'] == SB['name'][name_len:]]['skycoords'][20].ra.deg,
+                beam_positions_table[beam_positions_table['SB'] == SB['name'][name_len:]]['skycoords'][20].dec.deg,
+                SB['sbid'],
+                {'ha':'center',
+                 'va':'top' if SB['name'][-1] == 'A' else ('bottom' if SB['name'][-1] == 'B' else 'center'),
+                 'c':'k','size':4},
+                transform=ccrs.PlateCarree())
+
+    for SB in partial_SBs:
+        for c in beam_positions_table[beam_positions_table['SB'] == SB['name'][name_len:]]['skycoords']:
+            ax.add_patch(plt.Circle((-1*c.ra.deg,c.dec.deg),radius=1.2*(1300/1440)*0.95,
+                                    alpha=0.3,fc='tab:cyan',transform=ccrs.PlateCarree())) 
+        ax.text(-1*beam_positions_table[beam_positions_table['SB'] == SB['name'][name_len:]]['skycoords'][20].ra.deg,
+                beam_positions_table[beam_positions_table['SB'] == SB['name'][name_len:]]['skycoords'][20].dec.deg,
+                SB['sbid'],
+                {'ha':'center',
+                 'va':'top' if SB['name'][-1] == 'A' else ('bottom' if SB['name'][-1] == 'B' else 'center'),
+                 'c':'k','size':4},
+                transform=ccrs.PlateCarree())
+        
+    partial_patch=plt.Circle((0,0),radius=1.2*(1300/1440)*0.95,
+                            alpha=0.3,fc='tab:cyan',label='Partial tile pipeline')
+    dave_patch=plt.Circle((0,0),radius=1.2*(1300/1440)*0.95,
+                            alpha=0.3,fc='tab:purple',label="Dave's pipeline")
+    ax.legend(handles=[dave_patch,partial_patch],)
+
+        
+    for ra_grid in [0,3,6,9,12]:
+        ax.text(-15*ra_grid,15,str(int(ra_grid))+'h',{'ha':'right','va':'top'},transform=ccrs.PlateCarree())
+    for ra_grid in [12.01,15,18,21]:
+        ax.text(-15*ra_grid,15,str(int(ra_grid))+'h',{'ha':'left','va':'top'},transform=ccrs.PlateCarree())
+    for dec_grid in [75,60,45,30,15,0,-15,-30,-45,-60,-75]:
+        ax.text(0,dec_grid,str(dec_grid)+'°',{'ha':'left','weight':'bold','va':'bottom'},transform=ccrs.PlateCarree())
+    xmax=plt.xlim()[1]
+    ymax=plt.ylim()[1]
+    plt.text(xmax*-0.99,ymax*-0.95,'Equatorial\ncoordinates',{'size':14,'weight':'bold','ha':'left'})
+
+
+
+    basename='./'
+    plt.savefig(basename+f'SingleSB_band{band}_status_equatorial.png',bbox_inches='tight',dpi=300)
+    plt.close()
+
+
+    #Galactic coords:
+    plt.figure(figsize=(12,6))
+    ax=plt.subplot(projection=ccrs.Mollweide())
+    ax.gridlines(draw_labels=False,xlocs=[0,45,90,135,180,-45,-90,-135,-179.99],ylocs=[-90,-75,-60,-45,-30,-15,0,15,30,45,60,75,90])
+    ax.set_global()
+    
+    for SB in dave_SBs:
+        for c in beam_positions_table[beam_positions_table['SB'] == SB['name'][name_len:]]['skycoords']:
+            ax.add_patch(plt.Circle((-1*c.galactic.l.deg,c.galactic.b.deg),radius=1.2*(1300/1440)*0.95,
+                                    alpha=0.3,fc='tab:purple',transform=ccrs.PlateCarree())) 
+        ax.text(-1*beam_positions_table[beam_positions_table['SB'] == SB['name'][name_len:]]['skycoords'][20].galactic.l.deg,
+                beam_positions_table[beam_positions_table['SB'] == SB['name'][name_len:]]['skycoords'][20].galactic.b.deg,
+                SB['sbid'],
+                {'ha':'center',
+                 'va':'top' if SB['name'][-1] == 'A' else ('bottom' if SB['name'][-1] == 'B' else 'center'),
+                 'c':'k','size':4},
+                transform=ccrs.PlateCarree())
+
+    for SB in partial_SBs:
+        for c in beam_positions_table[beam_positions_table['SB'] == SB['name'][name_len:]]['skycoords']:
+            ax.add_patch(plt.Circle((-1*c.galactic.l.deg,c.galactic.b.deg),radius=1.2*(1300/1440)*0.95,
+                                    alpha=0.3,fc='tab:cyan',transform=ccrs.PlateCarree())) 
+        ax.text(-1*beam_positions_table[beam_positions_table['SB'] == SB['name'][name_len:]]['skycoords'][20].galactic.l.deg,
+                beam_positions_table[beam_positions_table['SB'] == SB['name'][name_len:]]['skycoords'][20].galactic.b.deg,
+                SB['sbid'],
+                {'ha':'center',
+                 'va':'top' if SB['name'][-1] == 'A' else ('bottom' if SB['name'][-1] == 'B' else 'center'),
+                 'c':'k','size':4},
+                transform=ccrs.PlateCarree())
+        
+    ax.legend(handles=[dave_patch,partial_patch],)
+        
+    for ra_grid in [0,3,6,9,12]:
+        ax.text(-15*ra_grid,15,str(int(ra_grid))+'h',{'ha':'right','va':'top'},transform=ccrs.PlateCarree())
+    for ra_grid in [12.01,15,18,21]:
+        ax.text(-15*ra_grid,15,str(int(ra_grid))+'h',{'ha':'left','va':'top'},transform=ccrs.PlateCarree())
+    for dec_grid in [75,60,45,30,15,0,-15,-30,-45,-60,-75]:
+        ax.text(0,dec_grid,str(dec_grid)+'°',{'ha':'left','weight':'bold','va':'bottom'},transform=ccrs.PlateCarree())
+    xmax=plt.xlim()[1]
+    ymax=plt.ylim()[1]
+    plt.text(xmax*-0.99,ymax*-0.95,'Galactic\ncoordinates',{'size':14,'weight':'bold','ha':'left'})
+
+    basename='./'
+    plt.savefig(basename+f'SingleSB_band{band}_status_galactic.png',bbox_inches='tight',dpi=300)
+    plt.close()
+
+
+
+
+
 def auto_update(ps,db_auth_file):
     """Update the sheet with the latest observation statuses, generate a new
     set of figures for all surveys, generate new Aladin Lite pages, and
@@ -1534,6 +1667,8 @@ def auto_update(ps,db_auth_file):
     create_plots(ps,'1','./Survey_band1_status_')
     create_plots(ps,'2','./Survey_band2_status_')
     create_overlap_plots(ps, './Survey_')
+    single_SB_pipeline_plot(ps,'1')
+    single_SB_pipeline_plot(ps,'2')
     
     print('Updating Aladin overlays.')
     aladin_webpage(ps,'p1','aladin_pilot_band1.html')
