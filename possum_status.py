@@ -208,7 +208,12 @@ def update_observation_sheet(ps):
     for sb in new_sbs:
         casda_row=result[(result['sbid']==sb) & (result['event_type']=='DEPOSITED')][0]
     
+    
         ivoa_result=session.search(f"SELECT quality_level,filename,obs_id FROM ivoa.obscore WHERE obs_id='ASKAP-{sb}' AND dataproduct_subtype='catalogue.polarisation.component'").to_table()
+    
+        if len(ivoa_result) == 0:
+            print(f'SB {sb} has no files. Please check why -- if DELETED, please add manually.')
+            continue
         field_name=ivoa_result['filename'][0].split('.')[2]
         
         row=[field_name, str(sb), casda_row['obs_program'], casda_row['obs_start'], casda_row['obs_end'], casda_row['event_date'][0:10], '', 'NOT_VALIDATED', 'DEPOSITED']
