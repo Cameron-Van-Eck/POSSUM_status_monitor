@@ -241,7 +241,7 @@ def update_observation_sheet(ps):
                 validation_level=ivoa_result[0]['quality_level']
         
                 i=np.where(obs_data['sbid']==sb)[0][0]
-                obs_sheet.update(f'G{i+2}',[[validation_date,validation_level,state]])
+                obs_sheet.update(range_name=f'G{i+2}',values=[[validation_date,validation_level,state]])
                 sleep(1)
 
 
@@ -281,7 +281,7 @@ def update_field_sheet(ps,band):
             obs=field_observations[validated][idx] #This is the first validated observation. Use this one.
             #Update only if it doesn't match any of the current validated SBs
             if field_data[field_idx-2]['validated'] not in field_observations[validated]['validated']:
-                field_sheet.update(f'N{field_idx}',[[obs['obs_start'],obs['obs_end'], obs['sbid'], obs['deposited'], obs['validated']]])
+                field_sheet.update(range_name=f'N{field_idx}',values=[[obs['obs_start'],obs['obs_end'], obs['sbid'], obs['deposited'], obs['validated']]])
                 sleep(1)
                 #print(f"Field {field} is validated.")
     
@@ -314,7 +314,7 @@ def update_field_sheet(ps,band):
                 obs=field_observations[new][0]
                 #Update only if it doesn't match the current value
                 if field_data[field_idx-2]['sbid'] != obs['sbid']:
-                    field_sheet.update(f'N{field_idx}',[[obs['obs_start'],obs['obs_end'], obs['sbid'], obs['deposited'], obs['validated']]])
+                    field_sheet.update(range_name=f'N{field_idx}',values=[[obs['obs_start'],obs['obs_end'], obs['sbid'], obs['deposited'], obs['validated']]])
                     sleep(1)
                 #print(f"Field {field} is observed.")
             
@@ -325,7 +325,7 @@ def update_field_sheet(ps,band):
             obs=field_observations[rejected][idx] #This is the more recent rejected observation. Use this one.
             #Update only if it doesn't match the current value
             if field_data[field_idx-2]['validated'] != obs['validated']:
-                field_sheet.update(f'N{field_idx}',[[obs['obs_start'],obs['obs_end'], obs['sbid'], obs['deposited'], obs['validated']]])
+                field_sheet.update(range_name=f'N{field_idx}',values=[[obs['obs_start'],obs['obs_end'], obs['sbid'], obs['deposited'], obs['validated']]])
                 sleep(1)
                 #print(f"Field {field} is rejected.")
     
@@ -359,7 +359,7 @@ def update_aussrc_observation_status(ps,db_auth_file,band):
         if (field_data[field_idx]['aus_src'] != row['cube_update'].strftime("%Y-%m-%d")):
                     #Update cell if blank or has different timestamp
             #print(f'S{field_idx+2}',row['cube_update'].strftime("%Y-%m-%d"))
-            field_sheet.update(f'S{field_idx+2}',row['cube_update'].strftime("%Y-%m-%d"))
+            field_sheet.update(range_name=f'S{field_idx+2}',values=[[row['cube_update'].strftime("%Y-%m-%d")]])
             sleep(1)
 
 
@@ -412,7 +412,7 @@ def update_observed_fields_old(ps,db_auth_file):
     #Update rows for all new observations (new SBs)
     for i in new_obs:
         sb=emu_obs[i]['sbid']
-        sheet.update(f'P{i+2}',sb)
+        sheet.update(range_name=f'P{i+2}',values=sb)
         sleep(1)
 
 
@@ -422,14 +422,14 @@ def update_observed_fields_old(ps,db_auth_file):
     # #Update rows for all new observations -- removing old obs dates and validation
     for i in reobs:
         sb=emu_obs[i]['sbid']
-        sheet.update(f'N{i+2}',[['','',sb,'','']])
+        sheet.update(range_name=f'N{i+2}',values=[['','',sb,'','']])
         sleep(1)
 
     cancelled = np.where((current_data['sbid'] != emu_obs['sbid']) & 
                        ((emu_obs['sbid'] == '0') & (current_data['sbid'] != '') & (current_data['processed'] == '')))[0]
     for i in cancelled:
         sb=emu_obs[i]['sbid']
-        sheet.update(f'N{i+2}',[['','','','','']])
+        sheet.update(range_name=f'N{i+2}',values=[['','','','','']])
         sleep(1)
 
 
@@ -439,7 +439,7 @@ def update_observed_fields_old(ps,db_auth_file):
         sb=emu_obs[i]['sbid']
         obs_start,obs_end,deposit_date=query_CASDA_TAP(sb)[0:3]
         if obs_start is not None:
-            sheet.update(f'N{i+2}',[[obs_start,obs_end,sb,deposit_date[0:10]]])
+            sheet.update(range_name=f'N{i+2}',values=[[obs_start,obs_end,sb,deposit_date[0:10]]])
             sleep(1)
 
         
@@ -453,21 +453,21 @@ def update_observed_fields_old(ps,db_auth_file):
         valid_date=query_CASDA_TAP(sb)[3]
         if valid_date is not None:
             if 'REJECTED' in valid_date:
-                sheet.update(f'R{i+2}',valid_date)
-                sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":1,"green": 0.,"blue": 0.}}})
+                sheet.update(range_name=f'R{i+2}',values=valid_date)
+                sheet.format(range_name=f'R{i+2}',cell_format={'backgroundColorStyle':{"rgbColor": {"red":1,"green": 0.,"blue": 0.}}})
                 sleep(2)
                 
                 row=sheet.get_values(f'A{i+2}:Z{i+2}')
                 testcol=reject_sheet.get_values("A:A")
                 sleep(2)
                 newrow_num=len(testcol)+1
-                reject_sheet.update(f'A{newrow_num}:Z{newrow_num}',row)
+                reject_sheet.update(range_name=f'A{newrow_num}:Z{newrow_num}',values=row)
                 sleep(1)
 
 
             else:
-                sheet.update(f'R{i+2}',valid_date[0:10])
-                sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":0.,"green": 0.,"blue": 1.}}})
+                sheet.update(range_name=f'R{i+2}',values=valid_date[0:10])
+                sheet.format(range_name=f'R{i+2}',cell_format={'backgroundColorStyle':{"rgbColor": {"red":0.,"green": 0.,"blue": 1.}}})
                 sleep(2)
 
 
@@ -492,8 +492,8 @@ def update_observed_fields_old(ps,db_auth_file):
             if (current_data[sb_row[0]]['aus_src'] == '') or (current_data[sb_row[0]]['aus_src'] != db_data[i]['cube_update'].strftime("%Y-%m-%d")):
                 #Update cell if blank or has different timestamp
                 #print(f'S{sb_row[0]+2}',db_data[i]['cube_update'].strftime("%Y-%m-%d"))
-                sheet.update(f'S{sb_row[0]+2}',db_data[i]['cube_update'].strftime("%Y-%m-%d"))
-                sheet.format(f'S{sb_row[0]+2}',{'backgroundColorStyle':{"rgbColor": {"red":0,"green": 1.,"blue": 0.}}})
+                sheet.update(range_name=f'S{sb_row[0]+2}',values=db_data[i]['cube_update'].strftime("%Y-%m-%d"))
+                sheet.format(range_name=f'S{sb_row[0]+2}',cell_format={'backgroundColorStyle':{"rgbColor": {"red":0,"green": 1.,"blue": 0.}}})
                 sleep(2)
 
 
@@ -515,7 +515,7 @@ def update_observed_fields_old(ps,db_auth_file):
     #Update rows for all new observations (new SBs)
     for i in new_obs:
         sb=emu_obs[i]['sbid']
-        sheet.update(f'P{i+2}',sb)
+        sheet.update(range_name=f'P{i+2}',values=sb)
         sleep(1)
 
 
@@ -525,7 +525,7 @@ def update_observed_fields_old(ps,db_auth_file):
     # #Update rows for all new observations -- removing old obs dates and validation
     for i in reobs:
         sb=emu_obs[i]['sbid']
-        sheet.update(f'N{i+2}',[['','',sb,'','']])
+        sheet.update(range_name=f'N{i+2}',values=[['','',sb,'','']])
         sleep(1)
 
 
@@ -535,7 +535,7 @@ def update_observed_fields_old(ps,db_auth_file):
         sb=emu_obs[i]['sbid']
         obs_start,obs_end,deposit_date=query_CASDA_TAP(sb)[0:3]
         if obs_start is not None:
-            sheet.update(f'N{i+2}',[[obs_start,obs_end,sb,deposit_date[0:10]]])
+            sheet.update(range_name=f'N{i+2}',values=[[obs_start,obs_end,sb,deposit_date[0:10]]])
             sleep(1)
 
         
@@ -546,20 +546,20 @@ def update_observed_fields_old(ps,db_auth_file):
         valid_date=query_CASDA_TAP(sb)[3]
         if valid_date is not None:
             if 'REJECTED' in valid_date:
-                sheet.update(f'R{i+2}',valid_date)
-                sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":1,"green": 0.,"blue": 0.}}})
+                sheet.update(range_name=f'R{i+2}',values=valid_date)
+                sheet.format(range_name=f'R{i+2}',cell_format={'backgroundColorStyle':{"rgbColor": {"red":1,"green": 0.,"blue": 0.}}})
                 sleep(2)
                 
                 row=sheet.get_values(f'A{i+2}:Z{i+2}')
                 testcol=reject_sheet.get_values("A:A")
                 sleep(2)
                 newrow_num=len(testcol)+1
-                reject_sheet.update(f'A{newrow_num}:Z{newrow_num}',row)
+                reject_sheet.update(range_name=f'A{newrow_num}:Z{newrow_num}',values=row)
                 sleep(1)
 
             else:
-                sheet.update(f'R{i+2}',valid_date[0:10])
-                sheet.format(f'R{i+2}',{'backgroundColorStyle':{"rgbColor": {"red":0.,"green": 0.,"blue": 1.}}})
+                sheet.update(range_name=f'R{i+2}',values=valid_date[0:10])
+                sheet.format(range_name=f'R{i+2}',cell_format={'backgroundColorStyle':{"rgbColor": {"red":0.,"green": 0.,"blue": 1.}}})
                 sleep(2)
 
     try:
@@ -581,8 +581,8 @@ def update_observed_fields_old(ps,db_auth_file):
             if (current_data[sb_row[0]]['aus_src'] == '') or (current_data[sb_row[0]]['aus_src'] != db_data[i]['cube_update'].strftime("%Y-%m-%d")):
                 #Update cell if blank or has different timestamp
                 #print(f'S{sb_row[0]+2}',db_data[i]['cube_update'].strftime("%Y-%m-%d"))
-                sheet.update(f'S{sb_row[0]+2}',db_data[i]['cube_update'].strftime("%Y-%m-%d"))
-                sheet.format(f'S{sb_row[0]+2}',{'backgroundColorStyle':{"rgbColor": {"red":0,"green": 1.,"blue": 0.}}})
+                sheet.update(range_name=f'S{sb_row[0]+2}',values=db_data[i]['cube_update'].strftime("%Y-%m-%d"))
+                sheet.format(range_name=f'S{sb_row[0]+2}',cell_format={'backgroundColorStyle':{"rgbColor": {"red":0,"green": 1.,"blue": 0.}}})
                 sleep(2)
 
 
@@ -610,8 +610,8 @@ def update_aussrc_field_processed(ps,survey,sb):
     if w.size != 1:
         raise Exception('Could not uniquely find SB row. Either missing or duplicated?')
     today=datetime.date.today().isoformat()
-    obs_sheet.update(f'S{int(w)+2}',today) 
-    obs_sheet.format(f'S{int(w)+2}',{'backgroundColorStyle':{"rgbColor": {"red":0.,"green": 1.,"blue": 0.}}})
+    obs_sheet.update(range_name=f'S{int(w)+2}',values=today) 
+    obs_sheet.format(range_name=f'S{int(w)+2}',cell_format={'backgroundColorStyle':{"rgbColor": {"red":0.,"green": 1.,"blue": 0.}}})
     sleep(2)
     
     #Get tiles that should have been produced:
@@ -653,7 +653,7 @@ def update_aussrc_tile_processed(ps,survey,tile):
     if w.size != 1:
         raise Exception('Could not uniquely find tile row. Either missing or duplicated?')
     today=datetime.date.today().isoformat()
-    tile_sheet.update(f'H{int(w)+2}',today) 
+    tile_sheet.update(range_name=f'H{int(w)+2}',values=today) 
     sleep(1)
 
     #Small function to get the right column name, accounting for the wrapping from Z to AA.
