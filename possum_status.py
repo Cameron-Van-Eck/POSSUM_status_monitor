@@ -72,10 +72,15 @@ def _access_database(auth_file):
     """
     with open(auth_file,'r') as f:
         db_details = json.load(f)
+    if "port" in db_details:
+        port=db_details["port"]
+    else:
+        port="5432"
 
     connection = psycopg2.connect(host=db_details['host'],
                                   user=db_details['user'],
                                   password=db_details['password'],
+                                  port=port,
                                   database='possum')
     return connection
 
