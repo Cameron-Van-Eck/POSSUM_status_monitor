@@ -592,6 +592,38 @@ def update_observed_fields_old(ps,db_auth_file):
 
 
 
+def update_AusSRC_tile_list(ps,db_auth_file,band='1'):
+    """Check the AusSRC database for tiles that have been processed by the
+    AusSRC pipeline, and update the spreadsheet"""
+    #Check for AusSRC processing status
+
+    connection = _access_database(db_auth_file)
+    cursor = connection.cursor()
+    try:
+        cursor.execute(f"""SELECT tile, band{band}_cube_state, band{band}_mfs_state
+        FROM possum.tile 
+        WHERE (band{band}_cube_state = 'COMPLETED' AND band{band}_mfs_state = 'COMPLETED')   """)
+        db_data=cursor.fetchall()
+    finally:
+        connection.rollback()
+    db_data=at.Table(np.array(db_data),names=['tile','cube_state','mfs_state'])
+
+
+    sheet=_get_sheet(ps,band,'Tiles')
+    sheet_data=sheet.get_values()
+    sleep(2)
+    sheet_data=at.Table(np.array(sheet_data)[1:],names=sheet_data[0])
+
+    new=at.join(db_data,sheet_data[sheet_data['aus_src'] == ''],keys_left='tile',keys_right='tile_id')
+
+    for tile in new['tile']:
+        w = np.where(sheet_data['tile_id'] == str(tile))[0]
+        if w.size != 1:
+            raise Exception('Could not uniquely find tile row. Either missing or duplicated?')
+        today=datetime.date.today().isoformat()
+        sheet.update(range_name=f'H{int(w)+2}',values=[[today]]) 
+        sleep(1)
+
 
 
 
@@ -1643,10 +1675,10 @@ def single_SB_pipeline_plot(ps,band='1'):
         
     ax.legend(handles=[dave_patch,partial_patch],)
         
-    for ra_grid in [0,3,6,9,12]:
-        ax.text(-15*ra_grid,15,str(int(ra_grid))+'h',{'ha':'right','va':'top'},transform=ccrs.PlateCarree())
-    for ra_grid in [12.01,15,18,21]:
-        ax.text(-15*ra_grid,15,str(int(ra_grid))+'h',{'ha':'left','va':'top'},transform=ccrs.PlateCarree())
+    for ra_grid in [0,45,90,135,180]:
+        ax.text(-1*ra_grid,0,str(int(ra_grid))+'°',{'ha':'right','va':'top','color':'w'},transform=ccrs.PlateCarree())
+    for ra_grid in [180.01,225,270,315]:
+        ax.text(-1*ra_grid,0,str(int(ra_grid))+'°',{'ha':'left','va':'top','color':'w'},transform=ccrs.PlateCarree())
     for dec_grid in [75,60,45,30,15,0,-15,-30,-45,-60,-75]:
         ax.text(0,dec_grid,str(dec_grid)+'°',{'ha':'left','weight':'bold','va':'bottom'},transform=ccrs.PlateCarree())
     xmax=plt.xlim()[1]
@@ -1670,7 +1702,10 @@ def auto_update(ps,db_auth_file):
     print('Updating sheet.')
     #update_observed_fields_old(ps,db_auth_file)
     update_observation_status(ps,db_auth_file)
-
+    
+    update_AusSRC_tile_list(ps,db_auth_file,band='1')
+    update_AusSRC_tile_list(ps,db_auth_file,band='2')
+    
     print('Updating plots.')
 #    create_plots(ps,'p1','./Pilot_band1_status_')
 #    create_plots(ps,'p2','./Pilot_band2_status_')
@@ -1681,8 +1716,8 @@ def auto_update(ps,db_auth_file):
     single_SB_pipeline_plot(ps,'2')
     
     print('Updating Aladin overlays.')
-    aladin_webpage(ps,'p1','aladin_pilot_band1.html')
-    aladin_webpage(ps,'p2','aladin_pilot_band2.html')
+#    aladin_webpage(ps,'p1','aladin_pilot_band1.html')
+#    aladin_webpage(ps,'p2','aladin_pilot_band2.html')
     aladin_webpage(ps,'1','aladin_survey_band1.html')
     aladin_webpage(ps,'2','aladin_survey_band2.html')
     set_update_date_on_main_page('./status_page.html')
