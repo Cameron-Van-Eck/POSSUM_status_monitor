@@ -128,16 +128,16 @@ def notify_slack(webhook,current_sbs,state_dict):
         message+='\nWALLABY SBs:\n'
     
             #Sort by states.
-        sb_waiting = [x for x in state_dict if (state_dict[x][1] == 'WAITING') and (state_dict[x][0] == 'WALLABY')  ]
-        sb_ready = [x for x in state_dict if (state_dict[x][1] == 'VALIDATED')  and (state_dict[x][0] == 'WALLABY')   ]
-        sb_reject = [x for x in state_dict if (state_dict[x][1] == 'REJECTED')  and (state_dict[x][0] == 'WALLABY')  ]
+        sb_waiting = [x for x in state_dict if (state_dict[x][0] == 'WALLABY')  ]
+#        sb_ready = [x for x in state_dict if (state_dict[x][1] == 'VALIDATED')  and (state_dict[x][0] == 'WALLABY')   ]
+#        sb_reject = [x for x in state_dict if (state_dict[x][1] == 'REJECTED')  and (state_dict[x][0] == 'WALLABY')  ]
     
         if len(sb_ready) > 0:
             message+=f'    Ready for validation: {sb_ready}\n'
-        if len(sb_reject) > 0:
-            message+=f'    Rejected by WALLABY: {sb_reject}\n'
-        if len(sb_waiting) > 0:
-            message+=f'    Waiting for WALLABY validation: {sb_waiting}\n'
+        # if len(sb_reject) > 0:
+        #     message+=f'    Rejected by WALLABY: {sb_reject}\n'
+        # if len(sb_waiting) > 0:
+        #     message+=f'    Waiting for WALLABY validation: {sb_waiting}\n'
         if len(sb_waiting)+len(sb_ready)+len(sb_reject) == 0:
             message+='    No WALLABY SBs in the queue.\n'
     
