@@ -600,9 +600,9 @@ def update_AusSRC_tile_list(ps,db_auth_file,band='1'):
     connection = _access_database(db_auth_file)
     cursor = connection.cursor()
     try:
-        cursor.execute(f"""SELECT tile, band{band}_cube_state, band{band}_mfs_state
-        FROM possum.tile 
-        WHERE (band{band}_cube_state = 'COMPLETED' AND band{band}_mfs_state = 'COMPLETED')   """)
+        cursor.execute(f"""SELECT tile, cube_state, mfs_state
+        FROM possum.tile_state_band{band} 
+        WHERE (cube_state = 'COMPLETED' AND mfs_state = 'COMPLETED')   """)
         db_data=cursor.fetchall()
     finally:
         connection.rollback()
