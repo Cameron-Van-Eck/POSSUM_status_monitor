@@ -344,8 +344,8 @@ def update_aussrc_observation_status(ps,db_auth_file,band):
     cursor = connection.cursor()
 
     try:
-        cursor.execute(f"""SELECT name,sbid,cube_update FROM possum.observation 
-        WHERE cube_state = 'COMPLETED' AND band = '{band}'  """)
+        cursor.execute(f"""SELECT name,sbid,cube_update FROM possum.observation_state_band{band} 
+        WHERE cube_state = 'COMPLETED'""")
         db_data=cursor.fetchall()
     finally:
         connection.rollback()
