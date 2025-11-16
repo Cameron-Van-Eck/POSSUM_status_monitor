@@ -119,7 +119,7 @@ def notify_slack(webhook,current_sbs,state_dict):
                       'Please validate before it hits 30 days to prevent an observation lockout.\n'
                       f'EMU SBs above warning threshold: {[x for x in EMU_sb if current_sbs[x] > warning_age_threshold ]}\n')
     
-        if len(EMU_sb) >= 0:
+        if len(EMU_sb) > 0:
             message+='\nEMU SBs:\n'
         
                 #Sort by states.
@@ -135,7 +135,7 @@ def notify_slack(webhook,current_sbs,state_dict):
                 message+=f'    Waiting for EMU validation: {sb_waiting}\n'
             
 
-        if len(WALLABY_sb) >= 0:
+        if len(WALLABY_sb) > 0:
             message+='\nWALLABY SBs:\n'
         
                 #Sort by states.
