@@ -92,55 +92,64 @@ def notify_slack(webhook,current_sbs,state_dict):
         WALLABY_ages = [current_sbs[x] for x in WALLABY_sb]
 
 
-        oldest_age = max(EMU_ages)
         sb_count=len(current_sbs)
-    
+
         message=('This is a biweekly automatic update on validation status.\n'
-                f'There are currently {sb_count} SBs awaiting validation.\n'
-                f'The oldest EMU SB is {oldest_age:.1f} days old.\n'
-                f'The oldest WALLABY SB is {max(WALLABY_ages):.1f} days old.\n')
-    
+                f'There are currently {sb_count} SBs awaiting validation.\n')
+
+
+        if len(EMU_sb) == 0:
+            message+='There are no EMU SBs awaiting validation.\n'
+            oldest_age_EMU=0
+        else:
+            oldest_age_EMU = max(EMU_ages)
+            message+= f'The oldest EMU SB is {oldest_age_EMU:.1f} days old.\n'
+            
+        if len(WALLABY_sb) == 0:
+            message+='There are no WALLABY SBs awaiting validation.\n'
+        else:
+            oldest_age_WALLABY = max(WALLABY_ages)
+            message+= f'The oldest WALLABY SB is {oldest_age_WALLABY:.1f} days old.\n'
+                
 
 
         #Send warning if SBs are close to deadline
-        if max(EMU_ages) > warning_age_threshold:
+        if oldest_age_EMU > warning_age_threshold:
             message+=(f'\n @channel *Warning: at least one EMU SB is older than {warning_age_threshold} days.* '
                       'Please validate before it hits 30 days to prevent an observation lockout.\n'
                       f'EMU SBs above warning threshold: {[x for x in EMU_sb if current_sbs[x] > warning_age_threshold ]}\n')
     
-        message+='\nEMU SBs:\n'
-    
-            #Sort by states.
-        sb_waiting = [x for x in state_dict if (state_dict[x][1] == 'WAITING') and (state_dict[x][0] == 'EMU')  ]
-        sb_ready = [x for x in state_dict if (state_dict[x][1] == 'VALIDATED')  and (state_dict[x][0] == 'EMU')   ]
-        sb_reject = [x for x in state_dict if (state_dict[x][1] == 'REJECTED')  and (state_dict[x][0] == 'EMU')  ]
-    
-        if len(sb_ready) > 0:
-            message+=f'    Ready for validation: {sb_ready}\n'
-        if len(sb_reject) > 0:
-            message+=f'    Rejected by EMU: {sb_reject}\n'
-        if len(sb_waiting) > 0:
-            message+=f'    Waiting for EMU validation: {sb_waiting}\n'
-        if len(sb_waiting)+len(sb_ready)+len(sb_reject) == 0:
-            message+='    No EMU SBs in the queue.\n'
+        if len(EMU_sb) >= 0:
+            message+='\nEMU SBs:\n'
         
+                #Sort by states.
+            sb_waiting = [x for x in state_dict if (state_dict[x][1] == 'WAITING') and (state_dict[x][0] == 'EMU')  ]
+            sb_ready = [x for x in state_dict if (state_dict[x][1] == 'VALIDATED')  and (state_dict[x][0] == 'EMU')   ]
+            sb_reject = [x for x in state_dict if (state_dict[x][1] == 'REJECTED')  and (state_dict[x][0] == 'EMU')  ]
+        
+            if len(sb_ready) > 0:
+                message+=f'    Ready for validation: {sb_ready}\n'
+            if len(sb_reject) > 0:
+                message+=f'    Rejected by EMU: {sb_reject}\n'
+            if len(sb_waiting) > 0:
+                message+=f'    Waiting for EMU validation: {sb_waiting}\n'
+            
 
-        message+='\nWALLABY SBs:\n'
-    
-            #Sort by states.
-        sb_WALLABY = [x for x in state_dict if (state_dict[x][0] == 'WALLABY')  ]
-#        sb_ready = [x for x in state_dict if (state_dict[x][1] == 'VALIDATED')  and (state_dict[x][0] == 'WALLABY')   ]
-#        sb_reject = [x for x in state_dict if (state_dict[x][1] == 'REJECTED')  and (state_dict[x][0] == 'WALLABY')  ]
-    
-        if len(sb_WALLABY) > 0:
-            message+=f'    Ready for validation: {sb_WALLABY}\n'
-        # if len(sb_reject) > 0:
-        #     message+=f'    Rejected by WALLABY: {sb_reject}\n'
-        # if len(sb_waiting) > 0:
-        #     message+=f'    Waiting for WALLABY validation: {sb_waiting}\n'
-        if len(sb_WALLABY) == 0:
-            message+='    No WALLABY SBs in the queue.\n'
-    
+        if len(WALLABY_sb) >= 0:
+            message+='\nWALLABY SBs:\n'
+        
+                #Sort by states.
+            sb_WALLABY = [x for x in state_dict if (state_dict[x][0] == 'WALLABY')  ]
+    #        sb_ready = [x for x in state_dict if (state_dict[x][1] == 'VALIDATED')  and (state_dict[x][0] == 'WALLABY')   ]
+    #        sb_reject = [x for x in state_dict if (state_dict[x][1] == 'REJECTED')  and (state_dict[x][0] == 'WALLABY')  ]
+        
+            if len(sb_WALLABY) > 0:
+                message+=f'    Ready for validation: {sb_WALLABY}\n'
+            # if len(sb_reject) > 0:
+            #     message+=f'    Rejected by WALLABY: {sb_reject}\n'
+            # if len(sb_waiting) > 0:
+            #     message+=f'    Waiting for WALLABY validation: {sb_waiting}\n'
+        
     
     requests.post(webhook,json={"parse":"full",'text':message})
     
